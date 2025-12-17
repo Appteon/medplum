@@ -12,6 +12,7 @@ import { createRoot } from 'react-dom/client';
 import { RouterProvider, createBrowserRouter } from 'react-router';
 import { App } from './App';
 import { getConfig } from './utils/config';
+import './globals.css';
 import './index.css';
 
 export async function initApp(): Promise<void> {

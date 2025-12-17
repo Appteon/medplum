@@ -1,0 +1,256 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 210 40% 98%;
+    --foreground: 222 47% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    --primary: 222 47% 11%;
+    --primary-foreground: 210 40% 98%;
+
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222 47% 11%;
+
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
+
+    --accent: 210 40% 96%;
+    --accent-foreground: 222 47% 11%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+
+    --success: 142 71% 45%;
+    --success-foreground: 210 40% 98%;
+
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 222 47% 11%;
+
+    --radius: 0.5rem;
+
+    /* EMR specific tokens */
+    --emr-sidebar: 222 47% 11%;
+    --emr-sidebar-hover: 217 33% 17%;
+    --emr-sidebar-active: 222 47% 15%;
+    --emr-header: 222 47% 11%;
+    --emr-content: 0 0% 100%;
+    --emr-surface: 210 40% 98%;
+    --emr-recording: 0 84% 60%;
+    --emr-recording-glow: 0 84% 60%;
+    --emr-stop: 142 71% 45%;
+    --emr-badge-today: 0 84% 60%;
+    --emr-badge-upcoming: 217 91% 60%;
+
+    --sidebar-background: 222 47% 11%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 210 40% 98%;
+    --sidebar-primary-foreground: 222 47% 11%;
+    --sidebar-accent: 217 33% 17%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 217 33% 17%;
+    --sidebar-ring: 217 91% 60%;
+
+    --chart-1: 12 76% 61%;
+    --chart-2: 173 58% 39%;
+    --chart-3: 197 37% 24%;
+    --chart-4: 43 74% 66%;
+    --chart-5: 27 87% 67%;
+
+    --chart-positive: 120 60% 50%;
+    --chart-negative: 0 100% 50%;
+    --chart-neutral: 0 0% 50%;
+  }
+
+  .dark {
+    --background: 222 47% 11%;
+    --foreground: 210 40% 98%;
+
+    --card: 222 47% 11%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 222 47% 11%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 210 40% 98%;
+    --primary-foreground: 222 47% 11%;
+
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 65%;
+
+    --accent: 217 33% 17%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 63% 31%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 217 33% 17%;
+    --input: 217 33% 17%;
+    --ring: 213 27% 84%;
+
+    --chart-1: 220 70% 50%;
+    --chart-2: 160 60% 45%;
+    --chart-3: 30 80% 55%;
+    --chart-4: 280 65% 60%;
+    --chart-5: 340 75% 55%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+}
+
+@layer components {
+  .emr-sidebar {
+    @apply bg-emr-sidebar text-sidebar-foreground;
+  }
+
+  .emr-card {
+    @apply bg-card rounded-lg border border-border shadow-sm;
+  }
+
+  .emr-section-header {
+    @apply bg-emr-header text-primary-foreground px-4 py-3 rounded-t-lg font-semibold;
+  }
+
+  .emr-patient-row {
+    @apply flex items-center gap-3 px-4 py-3 cursor-pointer transition-all duration-200;
+  }
+
+  .emr-patient-row:hover {
+    @apply bg-sidebar-accent;
+  }
+
+  .emr-patient-row.active {
+    @apply bg-emr-sidebar-active border-l-4 border-emr-badge-today;
+  }
+
+  .emr-filter-btn {
+    @apply px-3 py-1.5 text-sm font-medium rounded-md transition-all duration-200;
+  }
+
+  .emr-filter-btn.active {
+    @apply bg-destructive text-destructive-foreground;
+  }
+
+  .emr-filter-btn:not(.active) {
+    @apply bg-sidebar-accent text-sidebar-foreground hover:bg-sidebar-accent/80;
+  }
+
+  .emr-record-btn {
+    @apply w-24 h-24 rounded-full flex items-center justify-center transition-all duration-300 shadow-lg;
+  }
+
+  .emr-record-btn.recording {
+    @apply bg-success hover:bg-success/90;
+    box-shadow: 0 0 0 0 hsl(var(--success) / 0.4);
+    animation: pulse-success 2s infinite;
+  }
+
+  .emr-record-btn:not(.recording) {
+    @apply bg-destructive hover:bg-destructive/90;
+    box-shadow: 0 0 0 0 hsl(var(--destructive) / 0.4);
+  }
+
+  .emr-record-btn:not(.recording):hover {
+    animation: pulse-record 2s infinite;
+  }
+
+  .emr-medical-card {
+    @apply bg-card rounded-lg border border-border p-4 mb-3;
+  }
+
+  .emr-medical-card-header {
+    @apply text-sm font-semibold text-foreground uppercase tracking-wide mb-2;
+  }
+
+  .emr-badge {
+    @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .emr-badge-today {
+    @apply bg-destructive/10 text-destructive;
+  }
+
+  .emr-badge-upcoming {
+    @apply bg-emr-badge-upcoming/10 text-emr-badge-upcoming;
+  }
+
+  .emr-waveform-bar {
+    @apply bg-success rounded-full;
+    animation: waveform 0.5s ease-in-out infinite alternate;
+  }
+}
+
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--border));
+    border-radius: 3px;
+  }
+}
+
+@keyframes pulse-record {
+  0% {
+    box-shadow: 0 0 0 0 hsl(var(--destructive) / 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 15px hsl(var(--destructive) / 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 hsl(var(--destructive) / 0);
+  }
+}
+
+@keyframes pulse-success {
+  0% {
+    box-shadow: 0 0 0 0 hsl(var(--success) / 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 15px hsl(var(--success) / 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 hsl(var(--success) / 0);
+  }
+}
+
+@keyframes waveform {
+  0% {
+    transform: scaleY(0.3);
+  }
+  100% {
+    transform: scaleY(1);
+  }
+}

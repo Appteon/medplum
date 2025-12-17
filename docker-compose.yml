@@ -103,7 +103,7 @@ services:
           'CMD',
           'node',
           '-e',
-          'fetch("http://localhost:8103/healthcheck").then(r => r.json()).then(console.log).catch(() => { process.exit(1); })',
+          'fetch("http://127.0.0.1:8103/healthcheck").then(r => r.json()).then(console.log).catch(() => { process.exit(1); })',
         ]
       interval: 30s
       timeout: 10s
@@ -121,7 +121,7 @@ services:
       MEDPLUM_BASE_URL: 'https://healthai.appteon.ai/api/'
       RECAPTCHA_SITE_KEY: '6Lfqjy0sAAAAAAfKiIBJSa_Rz8vFzdT4Q4PJ--mt'
     healthcheck:
-      test: ['CMD', 'curl', '-f', 'http://localhost:3000']
+      test: ['CMD', 'curl', '-f', 'http://127.0.0.1:3000']
       interval: 10s
       timeout: 5s
       retries: 5

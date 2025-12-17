@@ -2,9 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 import mantinePreset from 'postcss-preset-mantine';
 import simpleVars from 'postcss-simple-vars';
+import tailwindcss from 'tailwindcss';
+import autoprefixer from 'autoprefixer';
 
 const config = {
   plugins: [
+    tailwindcss,
+    autoprefixer,
     mantinePreset(),
     simpleVars({
       variables: {
