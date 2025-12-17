@@ -3,7 +3,7 @@
 import { Title } from '@mantine/core';
 import { DescriptionList, DescriptionListEntry, useMedplum } from '@medplum/react';
 import type { JSX } from 'react';
-import { getProjectId } from '../utils';
+import { getProjectId } from '../utils/helpers';
 
 export function ProjectDetailsPage(): JSX.Element {
   const medplum = useMedplum();

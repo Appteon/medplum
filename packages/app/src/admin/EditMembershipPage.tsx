@@ -13,7 +13,7 @@ import { Form, FormSection, MedplumLink, ResourceBadge, useMedplum } from '@medp
 import type { JSX } from 'react';
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
-import { getProjectId } from '../utils';
+import { getProjectId } from '../utils/helpers';
 import { AccessPolicyInput } from './AccessPolicyInput';
 import { UserConfigurationInput } from './UserConfigurationInput';
 

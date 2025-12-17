@@ -7,7 +7,7 @@ import type { AccessPolicy, Bot, OperationOutcome, Reference } from '@medplum/fh
 import { Form, FormSection, getErrorsForInput, MedplumLink, useMedplum } from '@medplum/react';
 import type { JSX } from 'react';
 import { useState } from 'react';
-import { getProjectId } from '../utils';
+import { getProjectId } from '../utils/helpers';
 import { AccessPolicyInput } from './AccessPolicyInput';
 
 export function CreateBotPage(): JSX.Element {

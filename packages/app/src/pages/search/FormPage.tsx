@@ -7,8 +7,8 @@ import { Document, Loading, MedplumLink, PatientHeader, QuestionnaireForm, useMe
 import type { JSX } from 'react';
 import { useEffect, useState } from 'react';
 import { useLocation, useParams } from 'react-router';
-import { ResourceHeader } from './components/ResourceHeader';
-import { getPatient } from './utils';
+import { ResourceHeader } from '../../components/ResourceHeader';
+import { getPatient } from '../../utils/helpers';
 
 export function FormPage(): JSX.Element {
   const { id } = useParams() as { id: string };

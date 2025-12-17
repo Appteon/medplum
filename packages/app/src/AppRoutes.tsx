@@ -18,19 +18,25 @@ import { SitesPage } from './admin/SitesPage';
 import { SuperAdminAsyncDashboardPage } from './admin/SuperAdminAsyncJobPage';
 import { SuperAdminPage } from './admin/SuperAdminPage';
 import { UsersPage } from './admin/UsersPage';
-import { BatchPage } from './BatchPage';
-import { BulkAppPage } from './BulkAppPage';
-import { ChangePasswordPage } from './ChangePasswordPage';
-import { CreateResourcePage } from './CreateResourcePage';
 import { ErrorPage } from './ErrorPage';
-import { FormPage } from './FormPage';
-import { HomePage } from './HomePage';
+import { RootPage } from './RootPage';
 import { AssaysPage } from './lab/AssaysPage';
 import { PanelsPage } from './lab/PanelsPage';
-import { MfaPage } from './MfaPage';
-import { OAuthPage } from './OAuthPage';
-import { RegisterPage } from './RegisterPage';
-import { ResetPasswordPage } from './ResetPasswordPage';
+import { ChangePasswordPage } from './pages/auth/ChangePasswordPage';
+import { MfaPage } from './pages/auth/MfaPage';
+import { OAuthPage } from './pages/auth/OAuthPage';
+import { RegisterPage } from './pages/auth/RegisterPage';
+import { ResetPasswordPage } from './pages/auth/ResetPasswordPage';
+import { SecurityPage } from './pages/auth/SecurityPage';
+import { SetPasswordPage } from './pages/auth/SetPasswordPage';
+import { SignInPage } from './pages/auth/SignInPage';
+import { VerifyEmailPage } from './pages/auth/VerifyEmailPage';
+import { BatchPage } from './pages/search/BatchPage';
+import { BulkAppPage } from './pages/search/BulkAppPage';
+import { CreateResourcePage } from './pages/search/CreateResourcePage';
+import { FormPage } from './pages/search/FormPage';
+import { HomePage } from './pages/search/HomePage';
+import { SmartSearchPage } from './pages/search/SmartSearchPage';
 import { ApplyPage } from './resource/ApplyPage';
 import { AppsPage } from './resource/AppsPage';
 import { AuditEventPage } from './resource/AuditEventPage';
@@ -57,11 +63,6 @@ import { ResourceVersionPage } from './resource/ResourceVersionPage';
 import { SubscriptionsPage } from './resource/SubscriptionsPage';
 import { TimelinePage } from './resource/TimelinePage';
 import { ToolsPage } from './resource/ToolsPage';
-import { SecurityPage } from './SecurityPage';
-import { SetPasswordPage } from './SetPasswordPage';
-import { SignInPage } from './SignInPage';
-import { SmartSearchPage } from './SmartSearchPage';
-import { VerifyEmailPage } from './VerifyEmailPage';
 
 export function AppRoutes(): JSX.Element {
   return (
@@ -141,7 +142,7 @@ export function AppRoutes(): JSX.Element {
           <Route path="export" element={<ExportPage />} />
         </Route>
         <Route path="/:resourceType" element={<HomePage />} />
-        <Route path="/" element={<HomePage />} />
+        <Route path="/" element={<RootPage />} />
       </Route>
     </Routes>
   );

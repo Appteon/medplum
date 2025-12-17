@@ -11,7 +11,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { RouterProvider, createBrowserRouter } from 'react-router';
 import { App } from './App';
-import { getConfig } from './config';
+import { getConfig } from './utils/config';
 import './index.css';
 
 export async function initApp(): Promise<void> {

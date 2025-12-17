@@ -5,7 +5,7 @@ import { Document, InfoBar, LinkTabs, useMedplum } from '@medplum/react';
 import type { JSX } from 'react';
 import { useMemo } from 'react';
 import { Outlet } from 'react-router';
-import { getProjectId } from '../utils';
+import { getProjectId } from '../utils/helpers';
 
 const tabs = ['Details', 'Users', 'Patients', 'Clients', 'Bots', 'Secrets', 'Sites'];
 

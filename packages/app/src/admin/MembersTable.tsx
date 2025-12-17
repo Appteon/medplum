@@ -7,7 +7,7 @@ import { SearchControl, useMedplum } from '@medplum/react';
 import type { JSX } from 'react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
-import { getProjectId } from '../utils';
+import { getProjectId } from '../utils/helpers';
 
 export interface MemberTableProps {
   readonly resourceType: ResourceType;

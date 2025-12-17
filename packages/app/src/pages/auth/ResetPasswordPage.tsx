@@ -18,7 +18,7 @@ import {
 import type { JSX } from 'react';
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
-import { getConfig, isRegisterEnabled } from './config';
+import { getConfig, isRegisterEnabled } from '../../utils/config';
 
 export function ResetPasswordPage(): JSX.Element {
   const navigate = useNavigate();

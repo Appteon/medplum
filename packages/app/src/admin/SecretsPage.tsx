@@ -8,7 +8,7 @@ import type { ProjectSetting } from '@medplum/fhirtypes';
 import { ResourcePropertyInput, useMedplum } from '@medplum/react';
 import type { FormEvent, JSX } from 'react';
 import { useEffect, useState } from 'react';
-import { getProjectId } from '../utils';
+import { getProjectId } from '../utils/helpers';
 
 export function SecretsPage(): JSX.Element {
   const medplum = useMedplum();

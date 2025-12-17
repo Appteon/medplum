@@ -9,7 +9,7 @@ import { Logo, SignInForm, useMedplum } from '@medplum/react';
 import type { JSX } from 'react';
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
-import { getConfig } from './config';
+import { getConfig } from '../../utils/config';
 
 export function OAuthPage(): JSX.Element | null {
   const navigate = useNavigate();

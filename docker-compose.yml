@@ -18,6 +18,8 @@ services:
       - 'shared_preload_libraries=pg_stat_statements,auto_explain'
     ports:
       - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U medplum']
       interval: 10s
@@ -30,6 +32,8 @@ services:
     command: redis-server --requirepass medplum
     ports:
       - '6379:6379'
+    volumes:
+      - redis_data:/data
     healthcheck:
       test: ['CMD', 'redis-cli', '-a', 'medplum', 'ping']
       interval: 10s
@@ -38,7 +42,7 @@ services:
 
   # Medplum server container
   medplum-server:
-    image: medplum/medplum-server:latest
+    image: medplum-server:local
     restart: always
     depends_on:
       postgres:
@@ -48,6 +52,8 @@ services:
     volumes:
       # Conditionally define a volume for a `medplum.config.json` if one is specified by the MEDPLUM_CONFIG_PATH env var
       - ${MEDPLUM_CONFIG_PATH:-./medplum.config.json}:/usr/src/medplum/packages/server/medplum.config.json
+      # Persistent storage for uploaded files
+      - medplum_storage:/usr/src/medplum/packages/server/binary
     entrypoint: >
       sh -c "
       if [ -n '${MEDPLUM_CONFIG_PATH}' ]; then
@@ -105,7 +111,7 @@ services:
 
   # Medplum app container (web UI)
   medplum-app:
-    image: medplum/medplum-app:latest
+    image: medplum-app:local
     restart: always
     depends_on:
       medplum-server:
@@ -136,3 +142,8 @@ services:
       medplum-server:
         condition: service_healthy
     restart: always
+
+volumes:
+  postgres_data:
+  redis_data:
+  medplum_storage:

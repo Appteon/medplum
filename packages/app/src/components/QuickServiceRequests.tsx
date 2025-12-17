@@ -7,7 +7,7 @@ import { MedplumLink, sortByDateAndPriority, useMedplum, useResource } from '@me
 import cx from 'clsx';
 import type { JSX } from 'react';
 import { useEffect, useState } from 'react';
-import { getPatient } from '../utils';
+import { getPatient } from '../utils/helpers';
 import classes from './QuickServiceRequests.module.css';
 
 export interface QuickServiceRequestsProps {

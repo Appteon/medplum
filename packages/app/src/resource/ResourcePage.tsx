@@ -12,7 +12,7 @@ import { QuickServiceRequests } from '../components/QuickServiceRequests';
 import { QuickStatus } from '../components/QuickStatus';
 import { ResourceHeader } from '../components/ResourceHeader';
 import { SpecimenHeader } from '../components/SpecimenHeader';
-import { getPatient, getSpecimen } from '../utils';
+import { getPatient, getSpecimen } from './utils';
 import { cleanResource } from './utils';
 
 function getTabs(resourceType: string): string[] {

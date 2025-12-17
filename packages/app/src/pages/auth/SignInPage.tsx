@@ -5,7 +5,7 @@ import { getAppName, Logo, SignInForm, useMedplumProfile } from '@medplum/react'
 import type { JSX } from 'react';
 import { useCallback, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
-import { getConfig, isRegisterEnabled } from './config';
+import { getConfig, isRegisterEnabled } from '../../utils/config';
 
 export function SignInPage(): JSX.Element {
   const profile = useMedplumProfile();

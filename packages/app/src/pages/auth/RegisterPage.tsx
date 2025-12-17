@@ -6,7 +6,7 @@ import { IconAlertCircle } from '@tabler/icons-react';
 import type { JSX } from 'react';
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router';
-import { getConfig, isRegisterEnabled } from './config';
+import { getConfig, isRegisterEnabled } from '../../utils/config';
 
 export function RegisterPage(): JSX.Element | null {
   const medplum = useMedplum();

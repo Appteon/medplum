@@ -28,7 +28,7 @@ import {
 import type { JSX, ReactNode } from 'react';
 import { useState } from 'react';
 import { useParams } from 'react-router';
-import { isAwsTextractEnabled } from '../config';
+import { isAwsTextractEnabled } from '../utils/config';
 import { ResendSubscriptionsModal } from './ResendSubscriptionsModal';
 
 export function TimelinePage(): JSX.Element | null {

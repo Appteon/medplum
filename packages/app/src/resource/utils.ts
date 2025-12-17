@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: Copyright Orangebot, Inc. and Medplum contributors
 // SPDX-License-Identifier: Apache-2.0
-import type { Resource } from '@medplum/fhirtypes';
+import type { Patient, Reference, Resource, Specimen } from '@medplum/fhirtypes';
 
 /**
  * Cleans a resource of unwanted meta values.
@@ -24,4 +24,42 @@ export function cleanResource(resource: Resource): Resource {
     ...resource,
     meta,
   };
+}
+
+/**
+ * Tries to return the patient for the given the resource.
+ * @param resource - Any FHIR resource.
+ * @returns The patient associated with the resource, if available.
+ */
+export function getPatient(resource: Resource): Patient | Reference<Patient> | undefined {
+  if (resource.resourceType === 'Patient') {
+    return resource;
+  }
+  if (
+    resource.resourceType === 'DiagnosticReport' ||
+    resource.resourceType === 'Encounter' ||
+    resource.resourceType === 'Observation' ||
+    resource.resourceType === 'ServiceRequest'
+  ) {
+    return resource.subject as Reference<Patient>;
+  }
+  return undefined;
+}
+
+/**
+ * Tries to return the specimen for the given the resource.
+ * @param resource - Any FHIR resource.
+ * @returns The specimen associated with the resource, if available.
+ */
+export function getSpecimen(resource: Resource): Specimen | Reference<Specimen> | undefined {
+  if (resource.resourceType === 'Specimen') {
+    return resource;
+  }
+  if (resource.resourceType === 'Observation') {
+    return resource.specimen;
+  }
+  if (resource.resourceType === 'DiagnosticReport' || resource.resourceType === 'ServiceRequest') {
+    return resource.specimen?.[0];
+  }
+  return undefined;
 }
