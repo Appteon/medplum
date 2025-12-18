@@ -10,5 +10,9 @@
     { "path": "../definitions" },
     { "path": "../fhir-router" }
   ],
-  "include": ["src/**/*.ts", "src/**/*.json"]
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.json",
+    "src/integrations/practicefusion/**/*.ts"
+  ]
 }

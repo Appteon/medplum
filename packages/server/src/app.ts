@@ -59,6 +59,7 @@ import { closeWorkers, initWorkers } from './workers';
 import { medAiMedplumRouter } from './integrations/medai/medplum/index.js';
 import { medAiSonioxRouter } from './integrations/medai/soniox/index.js';
 import { initializePreChartScheduler, shutdownPreChartScheduler } from './integrations/medai/medplum/services/preChartScheduler.js';
+import { initializePfSyncScheduler, shutdownPfSyncScheduler } from './integrations/practicefusion/index.js';
 
 let server: http.Server | undefined = undefined;
 
@@ -175,6 +176,9 @@ export async function initApp(app: Express, config: MedplumServerConfig): Promis
   // Initialize pre-chart note scheduler
   initializePreChartScheduler();
 
+  // Initialize Practice Fusion EHR sync scheduler
+  initializePfSyncScheduler();
+
   app.set('etag', false);
   app.set('trust proxy', 1);
   app.set('x-powered-by', false);
@@ -258,6 +262,7 @@ export function initAppServices(config: MedplumServerConfig): Promise<void> {
 export async function shutdownApp(): Promise<void> {
   cleanupOtelHeartbeat();
   shutdownPreChartScheduler();
+  shutdownPfSyncScheduler();
   cleanupHeartbeat();
   await closeWebSockets();
   if (server) {

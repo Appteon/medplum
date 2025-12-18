@@ -103,6 +103,18 @@ services:
       PRECHARTSCHEDULER_ENABLED: 'true'
       PRECHARTSCHEDULER_INTERVAL_MS: '1800000'  # 30 minutes (default)
 
+      # Practice Fusion EHR Sync settings
+      # Set PF_SYNC_ENABLED to 'true' to enable automatic sync
+      PF_SYNC_ENABLED: 'true'
+      PF_SYNC_INTERVAL_MS: '86400000'  # 24 hours (default)
+      PF_SYNC_RUN_ON_STARTUP: 'true'  # Run initial sync on startup
+      PF_FHIR_BASE_URL: 'https://api-sandbox.practicefusion.com/fhir/r4/v1'
+      PF_CLIENT_ID: '5d068de1-4cb1-45bf-b9ff-09fa51669ef8'
+      PF_CLIENT_SECRET: '4uRSYIg0f955uhwG480npbBiwk3argUkck5IKH+eC68='
+      # PF_PRIVATE_KEY: ''  # Only needed if using JWT authentication instead of client_secret
+      # PF_KEY_ID: ''  # Only needed if using JWT authentication
+      PF_RESOURCE_TYPES: 'Patient,AllergyIntolerance,Binary,CarePlan,Condition,DiagnosticReport,DocumentReference,Encounter,Immunization,Medication,MedicationRequest,MedicationStatement,Observation,Practitioner,ServiceRequest'
+
     healthcheck:
       test:
         # We use Node's fetch for healthcheck because this image doesn't have a curl or wget installed
