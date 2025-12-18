@@ -56,6 +56,9 @@ import { webhookRouter } from './webhook/routes';
 import { closeWebSockets, initWebSockets } from './websockets';
 import { wellKnownRouter } from './wellknown';
 import { closeWorkers, initWorkers } from './workers';
+import { medAiMedplumRouter } from './integrations/medai/medplum/index.js';
+import { medAiSonioxRouter } from './integrations/medai/soniox/index.js';
+import { initializePreChartScheduler, shutdownPreChartScheduler } from './integrations/medai/medplum/services/preChartScheduler.js';
 
 let server: http.Server | undefined = undefined;
 
@@ -169,6 +172,9 @@ export async function initApp(app: Express, config: MedplumServerConfig): Promis
   server = http.createServer(app);
   initWebSockets(server);
 
+  // Initialize pre-chart note scheduler
+  initializePreChartScheduler();
+
   app.set('etag', false);
   app.set('trust proxy', 1);
   app.set('x-powered-by', false);
@@ -218,6 +224,9 @@ export async function initApp(app: Express, config: MedplumServerConfig): Promis
   apiRouter.use('/scim/v2/', scimRouter);
   apiRouter.use('/storage/', storageRouter);
   apiRouter.use('/webhook/', webhookRouter);
+  // Custom integrations
+  apiRouter.use('/medai/medplum/', medAiMedplumRouter);
+  apiRouter.use('/medai/soniox/', medAiSonioxRouter);
 
   if (config.mcpEnabled) {
     apiRouter.use('/mcp', mcpRouter);
@@ -248,6 +257,7 @@ export function initAppServices(config: MedplumServerConfig): Promise<void> {
 
 export async function shutdownApp(): Promise<void> {
   cleanupOtelHeartbeat();
+  shutdownPreChartScheduler();
   cleanupHeartbeat();
   await closeWebSockets();
   if (server) {

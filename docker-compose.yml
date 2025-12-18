@@ -86,8 +86,8 @@ services:
       MEDPLUM_GOOGLE_CLIENT_SECRET: ''
       MEDPLUM_RECAPTCHA_SITE_KEY: '6Lfqjy0sAAAAAAfKiIBJSa_Rz8vFzdT4Q4PJ--mt'
       MEDPLUM_RECAPTCHA_SECRET_KEY: '6Lfqjy0sAAAAAK8ygOWcOwMM_-nc_01cuuuIcC4v'
-      MEDPLUM_MAX_JSON_SIZE: '1mb'
-      MEDPLUM_MAX_BATCH_SIZE: '50mb'
+      MEDPLUM_MAX_JSON_SIZE: '500mb'
+      MEDPLUM_MAX_BATCH_SIZE: '500mb'
       MEDPLUM_BOT_LAMBDA_ROLE_ARN: ''
       MEDPLUM_BOT_LAMBDA_LAYER_NAME: 'medplum-bot-layer'
       MEDPLUM_VM_CONTEXT_BOTS_ENABLED: 'true'
@@ -95,6 +95,13 @@ services:
       MEDPLUM_ALLOWED_ORIGINS: '*'
       MEDPLUM_INTROSPECTION_ENABLED: 'true'
       MEDPLUM_SHUTDOWN_TIMEOUT_MILLISECONDS: 30000
+      HEALTHSCRIBE_MODEL: 'llama'
+      # HEALTHSCRIBE_MODEL: 'llama,openai,xai'
+      SONIOX_API_KEY: '8c4837b2e36f0af9866280e3243aa4dc6ce7bd33ceb5804ce8ab458a2fb0920d'
+      
+      # Pre-chart scheduler settings
+      PRECHARTSCHEDULER_ENABLED: 'true'
+      PRECHARTSCHEDULER_INTERVAL_MS: '1800000'  # 30 minutes (default)
 
     healthcheck:
       test:

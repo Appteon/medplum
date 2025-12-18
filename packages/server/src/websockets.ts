@@ -18,12 +18,14 @@ import { setGauge } from './otel/otel';
 import { getRedis, getRedisSubscriber } from './redis';
 import { requestContextStore } from './request-context-store';
 import { handleR4SubscriptionConnection } from './subscriptions/websockets';
+import { handleSonioxTranscriptionConnection } from './integrations/medai/soniox/websocket';
 
 const handlerMap = new Map<string, (socket: WebSocket, request: IncomingMessage) => Promise<void>>();
 handlerMap.set('echo', handleEchoConnection);
 handlerMap.set('agent', handleAgentConnection);
 handlerMap.set('fhircast', handleFhircastConnection);
 handlerMap.set('subscriptions-r4', handleR4SubscriptionConnection);
+handlerMap.set('soniox', handleSonioxTranscriptionConnection);
 
 type WebSocketState = {
   readonly sockets: Set<WebSocket>;

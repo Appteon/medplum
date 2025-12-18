@@ -23,13 +23,13 @@ type TranscriptSegment = {
 };
 
 const httpBase = `${process.env.MEDPLUM_BASE_URL || ''}`;
-const UPLOAD_AUDIO_URL = `${httpBase}/medplum/healthscribe/upload-audio`;
-const START_JOB = `${httpBase}/medplum/healthscribe/batch/start`;
+const UPLOAD_AUDIO_URL = `${httpBase}/api/medai/medplum/healthscribe/upload-audio`;
+const START_JOB = `${httpBase}/api/medai/medplum/healthscribe/batch/start`;
 
 const getWebSocketUrl = () => {
-  if (typeof window === 'undefined') return 'wss://healthai.appteon.ai/ws';
+  if (typeof window === 'undefined') return 'wss://healthai.appteon.ai/ws/soniox';
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${protocol}//${window.location.host}/ws`;
+  return `${protocol}//${window.location.host}/ws/soniox`;
 };
 
 interface ScribeNote {
@@ -126,7 +126,7 @@ export const ScribeColumn = ({
     const fetchScribeHistory = async () => {
       setIsLoadingHistory(true);
       try {
-        const url = `${httpBase}/medplum/healthscribe/scribe-notes/${encodeURIComponent(patientId)}`;
+        const url = `${httpBase}/api/medai/medplum/healthscribe/scribe-notes/${encodeURIComponent(patientId)}`;
         const response = await fetch(url, { credentials: 'include' });
 
         if (!response.ok) {
@@ -167,7 +167,7 @@ export const ScribeColumn = ({
       console.log('Scribe notes generated, refreshing...');
 
       try {
-        const url = `${httpBase}/medplum/healthscribe/scribe-notes/${encodeURIComponent(patientId!)}`;
+        const url = `${httpBase}/api/medai/medplum/healthscribe/scribe-notes/${encodeURIComponent(patientId!)}`;
         const response = await fetch(url, { credentials: 'include' });
 
         if (response.ok) {
@@ -200,63 +200,61 @@ export const ScribeColumn = ({
       if (preloadedAudio[jobName]) return;
 
       try {
-        const url = `${httpBase}/medplum/healthscribe/audio/${encodeURIComponent(jobName)}`;
-        const resp = await authenticatedFetch(url, { method: 'GET' });
+        const baseUrl = `${httpBase}/api/medai/medplum/healthscribe/audio/${encodeURIComponent(jobName)}`;
 
-        if (!resp.ok) {
+        // First, fetch metadata to get duration
+        const metadataResp = await authenticatedFetch(`${baseUrl}?metadata=true`, { method: 'GET' });
+        let duration: number | undefined;
+
+        if (metadataResp.ok) {
+          const metadata = await metadataResp.json();
+          if (metadata.duration !== undefined && isFinite(Number(metadata.duration))) {
+            duration = Number(metadata.duration);
+          }
+        }
+
+        // Then fetch the actual audio data
+        const audioResp = await authenticatedFetch(baseUrl, { method: 'GET' });
+
+        if (!audioResp.ok) {
           console.warn(`Failed to preload audio for job ${jobName}`);
           return;
         }
 
-        const maybeJson = await resp.clone().json().catch(() => null);
-        let audioUrl: string;
+        const blob = await audioResp.blob();
+        const audioUrl = URL.createObjectURL(blob);
 
-        if (maybeJson && maybeJson.url) {
-          audioUrl = maybeJson.url;
-          // Check if duration is available from Medplum
-          if (maybeJson.duration !== undefined && maybeJson.duration !== null && typeof maybeJson.duration === 'number') {
-            const medplumDuration = maybeJson.duration;
-            console.log(`Preloaded audio for ${jobName} with duration from Medplum: ${medplumDuration}s`);
-            setPreloadedAudio((prev) => ({
-              ...prev,
-              [jobName]: { url: audioUrl, duration: medplumDuration },
-            }));
-            return; // Duration is available, no need to fetch metadata
-          }
+        if (duration !== undefined) {
+          console.log(`Preloaded audio for ${jobName} with duration: ${duration}s`);
+          setPreloadedAudio((prev) => ({
+            ...prev,
+            [jobName]: { url: audioUrl, duration },
+          }));
         } else {
-          const blob = await resp.blob();
-          audioUrl = URL.createObjectURL(blob);
+          // Fallback: extract duration from audio metadata
+          console.log(`No duration metadata for ${jobName}, extracting from audio file...`);
+          const audio = new Audio();
+          audio.preload = 'metadata';
+          audioPreloadRefs.current[jobName] = audio;
+
+          let durationResolved = false;
+          const resolveDuration = () => {
+            if (durationResolved) return;
+            if (audio.duration && isFinite(audio.duration)) {
+              durationResolved = true;
+              console.log(`Extracted duration for ${jobName}: ${audio.duration}s`);
+              setPreloadedAudio((prev) => ({
+                ...prev,
+                [jobName]: { url: audioUrl, duration: audio.duration },
+              }));
+            }
+          };
+
+          audio.addEventListener('loadedmetadata', resolveDuration);
+          audio.addEventListener('durationchange', resolveDuration);
+          audio.src = audioUrl;
+          audio.load();
         }
-
-        // Fallback: fetch duration from metadata if not available from Medplum
-        console.log(`No duration from Medplum for ${jobName}, fetching from metadata...`);
-        const audio = new Audio();
-        audio.preload = 'metadata';
-        audio.crossOrigin = 'anonymous';
-
-        audioPreloadRefs.current[jobName] = audio;
-
-        let durationResolved = false;
-        const resolveDuration = () => {
-          if (durationResolved) return;
-          if (audio.duration && isFinite(audio.duration)) {
-            durationResolved = true;
-            console.log(`Preloaded audio for ${jobName} with duration from metadata: ${audio.duration}s`);
-            setPreloadedAudio((prev) => ({
-              ...prev,
-              [jobName]: { url: audioUrl, duration: audio.duration },
-            }));
-          }
-        };
-
-        audio.addEventListener('loadedmetadata', resolveDuration);
-        audio.addEventListener('durationchange', resolveDuration);
-        audio.addEventListener('canplaythrough', resolveDuration);
-        audio.addEventListener('canplay', resolveDuration);
-        audio.addEventListener('loadeddata', resolveDuration);
-
-        audio.src = audioUrl;
-        audio.load();
       } catch (e) {
         console.warn(`Error preloading audio for ${jobName}:`, e);
       }
@@ -681,7 +679,7 @@ export const ScribeColumn = ({
 
       if (transcriptText && transcriptText.trim()) {
         try {
-          const SCRIBE_URL = `${httpBase}/medplum/healthscribe/scribe/generate`;
+          const SCRIBE_URL = `${httpBase}/api/medai/medplum/healthscribe/scribe/generate`;
           setLiveTranscript((prev) => prev + '\n\nGenerating AI scribe notes...');
 
           const scribeResp = await authenticatedFetch(SCRIBE_URL, {
@@ -727,7 +725,7 @@ export const ScribeColumn = ({
 
             setTimeout(async () => {
               try {
-                const url = `${httpBase}/medplum/healthscribe/scribe-notes/${encodeURIComponent(
+                const url = `${httpBase}/api/medai/medplum/healthscribe/scribe-notes/${encodeURIComponent(
                   patientId,
                 )}`;
                 const response = await fetch(url, { credentials: 'include' });
@@ -859,7 +857,7 @@ export const ScribeColumn = ({
                               console.log('Fetching transcript for job:', job);
                               setLoadingArtifact(job);
                               try {
-                                const url = `${httpBase}/medplum/healthscribe/transcript/${encodeURIComponent(
+                                const url = `${httpBase}/api/medai/medplum/healthscribe/transcript/${encodeURIComponent(
                                   job,
                                 )}`;
                                 console.log('Transcript URL:', url);
@@ -936,80 +934,47 @@ export const ScribeColumn = ({
                               console.log('Fetching audio for job:', job);
                               setLoadingArtifact(job);
                               try {
-                                const url = `${httpBase}/medplum/healthscribe/audio/${encodeURIComponent(
-                                  job,
-                                )}`;
-                                console.log('Audio URL:', url);
-                                const resp = await authenticatedFetch(url, {
-                                  method: 'GET',
-                                });
+                                const baseUrl = `${httpBase}/api/medai/medplum/healthscribe/audio/${encodeURIComponent(job)}`;
+
+                                // Fetch metadata for duration
+                                let duration: number | undefined;
+                                try {
+                                  const metaResp = await authenticatedFetch(`${baseUrl}?metadata=true`, { method: 'GET' });
+                                  if (metaResp.ok) {
+                                    const meta = await metaResp.json();
+                                    if (meta.duration !== undefined && isFinite(Number(meta.duration))) {
+                                      duration = Number(meta.duration);
+                                    }
+                                  }
+                                } catch (e) {
+                                  console.warn('Failed to fetch audio metadata:', e);
+                                }
+
+                                // Fetch actual audio data
+                                const resp = await authenticatedFetch(baseUrl, { method: 'GET' });
                                 if (!resp.ok) {
                                   const t = await resp.text();
-                                  console.error(
-                                    'Failed to fetch audio:',
-                                    resp.status,
-                                    t,
-                                  );
+                                  console.error('Failed to fetch audio:', resp.status, t);
                                   setError(`Failed to load audio (${resp.status}): ${t}`);
                                   return;
                                 }
-                                const maybeJson = await resp
-                                  .clone()
-                                  .json()
-                                  .catch(() => null);
-                                let audioUrl: string;
-                                let durationFromServer: number | null = null;
-                                if (maybeJson && maybeJson.url) {
-                                  console.log('Received audio URL:', maybeJson.url);
-                                  audioUrl = maybeJson.url;
-                                  if (
-                                    maybeJson.duration !== undefined &&
-                                    maybeJson.duration !== null &&
-                                    isFinite(Number(maybeJson.duration))
-                                  ) {
-                                    durationFromServer = Number(maybeJson.duration);
-                                    setPreloadedAudio((prev) => ({
-                                      ...prev,
-                                      [job]: { url: audioUrl, duration: durationFromServer as number },
-                                    }));
-                                  }
-                                } else {
-                                  console.log(
-                                    'Received audio blob, creating object URL',
-                                  );
-                                  const blob = await resp.blob();
-                                  audioUrl = URL.createObjectURL(blob);
+
+                                const blob = await resp.blob();
+                                const audioUrl = URL.createObjectURL(blob);
+
+                                // Cache for future use
+                                if (duration !== undefined) {
+                                  setPreloadedAudio((prev) => ({
+                                    ...prev,
+                                    [job]: { url: audioUrl, duration },
+                                  }));
                                 }
 
-                                // Open modal immediately
+                                // Open modal
                                 setModalAudioUrl(audioUrl);
-                                setModalAudioDuration(
-                                  durationFromServer !== null ? durationFromServer : undefined,
-                                );
+                                setModalAudioDuration(duration);
                                 setModalTitle(`Recording - ${currentSummary.date}`);
                                 setShowAudioModal(true);
-
-                                // If server did not return duration, measure via metadata and cache it
-                                if (durationFromServer === null) {
-                                  const audio = new Audio();
-                                  audio.preload = 'metadata';
-                                  audio.addEventListener('loadedmetadata', () => {
-                                    if (audio.duration && isFinite(audio.duration)) {
-                                      console.log(
-                                        `Measured duration for job ${job}:`,
-                                        audio.duration,
-                                      );
-                                      setPreloadedAudio((prev) => ({
-                                        ...prev,
-                                        [job]: {
-                                          url: audioUrl,
-                                          duration: audio.duration,
-                                        },
-                                      }));
-                                    }
-                                  });
-                                  audio.src = audioUrl;
-                                }
                               } catch (e: any) {
                                 console.error('Error fetching audio:', e);
                                 setError(e?.message || 'Failed to load audio');
@@ -1140,7 +1105,7 @@ export const ScribeColumn = ({
                                   console.log('Fetching history transcript for job:', job);
                                   setLoadingArtifact(id);
                                   try {
-                                    const url = `${httpBase}/medplum/healthscribe/transcript/${encodeURIComponent(
+                                    const url = `${httpBase}/api/medai/medplum/healthscribe/transcript/${encodeURIComponent(
                                       job,
                                     )}`;
                                     console.log('History transcript URL:', url);
@@ -1219,79 +1184,47 @@ export const ScribeColumn = ({
                                   console.log('Fetching history audio for job:', job);
                                   setLoadingArtifact(id);
                                   try {
-                                    const url = `${httpBase}/medplum/healthscribe/audio/${encodeURIComponent(
-                                      job,
-                                    )}`;
-                                    console.log('History audio URL:', url);
-                                    const resp = await authenticatedFetch(url, {
-                                      method: 'GET',
-                                    });
+                                    const baseUrl = `${httpBase}/api/medai/medplum/healthscribe/audio/${encodeURIComponent(job)}`;
+
+                                    // Fetch metadata for duration
+                                    let duration: number | undefined;
+                                    try {
+                                      const metaResp = await authenticatedFetch(`${baseUrl}?metadata=true`, { method: 'GET' });
+                                      if (metaResp.ok) {
+                                        const meta = await metaResp.json();
+                                        if (meta.duration !== undefined && isFinite(Number(meta.duration))) {
+                                          duration = Number(meta.duration);
+                                        }
+                                      }
+                                    } catch (e) {
+                                      console.warn('Failed to fetch audio metadata:', e);
+                                    }
+
+                                    // Fetch actual audio data
+                                    const resp = await authenticatedFetch(baseUrl, { method: 'GET' });
                                     if (!resp.ok) {
                                       const t = await resp.text();
-                                      console.error(
-                                        'Failed to fetch history audio:',
-                                        resp.status,
-                                        t,
-                                      );
+                                      console.error('Failed to fetch history audio:', resp.status, t);
                                       setError(`Failed to load audio (${resp.status}): ${t}`);
                                       return;
                                     }
-                                    const maybeJson = await resp
-                                      .clone()
-                                      .json()
-                                      .catch(() => null);
-                                    let audioUrl: string;
-                                    let durationFromServer: number | null = null;
-                                    if (maybeJson && maybeJson.url) {
-                                      console.log('Received history audio URL:', maybeJson.url);
-                                      audioUrl = maybeJson.url;
-                                      if (
-                                        maybeJson.duration !== undefined &&
-                                        maybeJson.duration !== null &&
-                                        isFinite(Number(maybeJson.duration))
-                                      ) {
-                                        durationFromServer = Number(maybeJson.duration);
-                                        setPreloadedAudio((prev) => ({
-                                          ...prev,
-                                          [job]: { url: audioUrl, duration: durationFromServer as number },
-                                        }));
-                                      }
-                                    } else {
-                                      console.log(
-                                        'Received history audio blob, creating object URL',
-                                      );
-                                      const blob = await resp.blob();
-                                      audioUrl = URL.createObjectURL(blob);
+
+                                    const blob = await resp.blob();
+                                    const audioUrl = URL.createObjectURL(blob);
+
+                                    // Cache for future use
+                                    if (duration !== undefined) {
+                                      setPreloadedAudio((prev) => ({
+                                        ...prev,
+                                        [job]: { url: audioUrl, duration },
+                                      }));
                                     }
 
+                                    // Open modal
                                     setModalAudioUrl(audioUrl);
-                                    setModalAudioDuration(
-                                      durationFromServer !== null ? durationFromServer : undefined,
-                                    );
+                                    setModalAudioDuration(duration);
                                     setModalTitle(`Recording - ${entry.date}`);
                                     setShowAudioModal(true);
-
-                                    // If server did not return duration, measure via metadata and cache it
-                                    if (durationFromServer === null) {
-                                      const audio = new Audio();
-                                      audio.preload = 'metadata';
-                                      audio.addEventListener('loadedmetadata', () => {
-                                        if (audio.duration && isFinite(audio.duration)) {
-                                          console.log(
-                                            `Measured duration for history job ${job}:`,
-                                            audio.duration,
-                                          );
-                                          setPreloadedAudio((prev) => ({
-                                            ...prev,
-                                            [job]: {
-                                              url: audioUrl,
-                                              duration: audio.duration,
-                                            },
-                                          }));
-                                        }
-                                      });
-                                      audio.src = audioUrl;
-                                    }
                                   } catch (e: any) {
                                     console.error('Error fetching history audio:', e);
                                     setError(e?.message || 'Failed to load audio');

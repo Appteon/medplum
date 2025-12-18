@@ -153,7 +153,7 @@ export function MedplumPatientDetail({ selectedPatientId }: MedplumPatientDetail
     const fetchSmartNotes = async () => {
       setSmartLoading(true);
       try {
-        const url = `${httpBase}/medplum/smart-synthesis/notes/${selectedPatientId}`;
+        const url = `${httpBase}/api/medai/medplum/smart-synthesis/notes/${selectedPatientId}`;
         const response = await fetch(url, {
           method: 'GET',
           credentials: 'include',
@@ -198,7 +198,7 @@ export function MedplumPatientDetail({ selectedPatientId }: MedplumPatientDetail
     const fetchPreChartNotes = async () => {
       setPreChartLoading(true);
       try {
-        const url = `${httpBase}/medplum/pre-chart-notes/notes/${selectedPatientId}`;
+        const url = `${httpBase}/api/medai/medplum/pre-chart-notes/notes/${selectedPatientId}`;
         const response = await fetch(url, {
           method: 'GET',
           credentials: 'include',
@@ -287,7 +287,7 @@ export function MedplumPatientDetail({ selectedPatientId }: MedplumPatientDetail
         return;
       }
 
-      const url = `${httpBase}/medplum/smart-synthesis/notes/generate`;
+      const url = `${httpBase}/api/medai/medplum/smart-synthesis/notes/generate`;
       const resp = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -302,7 +302,7 @@ export function MedplumPatientDetail({ selectedPatientId }: MedplumPatientDetail
       if (!gen.ok) throw new Error(gen.error || 'Generate failed');
 
       // Refresh latest
-      const listResp = await fetch(`${httpBase}/medplum/smart-synthesis/notes/${selectedPatientId}`, { credentials: 'include' });
+      const listResp = await fetch(`${httpBase}/api/medai/medplum/smart-synthesis/notes/${selectedPatientId}`, { credentials: 'include' });
       if (listResp.ok) {
         const listJson = await listResp.json();
         if (listJson.ok && Array.isArray(listJson.notes) && listJson.notes.length) setSmartNote(listJson.notes[0]);
@@ -320,7 +320,7 @@ export function MedplumPatientDetail({ selectedPatientId }: MedplumPatientDetail
     if (!selectedPatientId) return;
     setIsSavingSmart(true);
     try {
-      const url = `${httpBase}/medplum/smart-synthesis/notes/save`;
+      const url = `${httpBase}/api/medai/medplum/smart-synthesis/notes/save`;
       const payload: any = { patient_id: selectedPatientId, content };
       if (smartNote?.id) payload.id = smartNote.id;
       const resp = await fetch(url, {
@@ -349,7 +349,7 @@ export function MedplumPatientDetail({ selectedPatientId }: MedplumPatientDetail
     if (!selectedPatientId) return;
     setPreChartLoading(true);
     try {
-      const url = `${httpBase}/medplum/pre-chart-notes/notes/generate`;
+      const url = `${httpBase}/api/medai/medplum/pre-chart-notes/notes/generate`;
       const resp = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -376,7 +376,7 @@ export function MedplumPatientDetail({ selectedPatientId }: MedplumPatientDetail
     if (!selectedPatientId) return;
     setIsSavingPreChart(true);
     try {
-      const url = `${httpBase}/medplum/pre-chart-notes/notes/save`;
+      const url = `${httpBase}/api/medai/medplum/pre-chart-notes/notes/save`;
       const payload: any = { patient_id: selectedPatientId, content };
       if (preChartNote?.id) payload.id = preChartNote.id;
       const resp = await fetch(url, {
