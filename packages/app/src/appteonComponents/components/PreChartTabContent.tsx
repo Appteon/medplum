@@ -182,8 +182,8 @@ export function PreChartTabContent({
             );
           }
 
-          // No valid summary available
-          return <p className="text-sm text-muted-foreground">No previous encounter summary available</p>;
+          // No previous encounter - this is the first visit
+          return <p className="text-sm text-muted-foreground italic">This is the patient's first visit</p>;
         })()}
       </div>
 
