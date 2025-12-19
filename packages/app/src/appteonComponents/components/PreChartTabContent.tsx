@@ -18,6 +18,8 @@ import {
   Syringe,
   User,
   Copy,
+  Sparkles,
+  Loader2,
 } from 'lucide-react';
 
 interface PreChartTabContentProps {
@@ -25,9 +27,18 @@ interface PreChartTabContentProps {
   copySection: (sectionId: string) => void;
   copiedSection: string | null;
   getLastTranscriptSummary: () => { date?: string; summary: string; provider?: string } | null;
+  onGeneratePreChart?: () => Promise<void>;
+  preChartLoading?: boolean;
 }
 
-export function PreChartTabContent({ preChartData, copySection, copiedSection, getLastTranscriptSummary }: PreChartTabContentProps) {
+export function PreChartTabContent({
+  preChartData,
+  copySection,
+  copiedSection,
+  getLastTranscriptSummary,
+  onGeneratePreChart,
+  preChartLoading = false,
+}: PreChartTabContentProps) {
   const [expandedLabs, setExpandedLabs] = useState<Set<string>>(new Set());
 
   const toggleLabExpansion = (labName: string) => {
@@ -44,6 +55,29 @@ export function PreChartTabContent({ preChartData, copySection, copiedSection, g
 
   return (
     <>
+      {/* Header with Generate Button */}
+      {onGeneratePreChart && (
+        <div className="flex justify-end mb-4 -mt-2">
+          <button
+            onClick={() => onGeneratePreChart()}
+            disabled={preChartLoading}
+            className="flex items-center gap-2 px-4 py-2 text-sm bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+          >
+            {preChartLoading ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Generating...
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-4 h-4" />
+                Generate new Pre-Chart notes
+              </>
+            )}
+          </button>
+        </div>
+      )}
+
       {/* Patient Demographics Card */}
       <div className="emr-medical-card">
         <div className="emr-medical-card-header flex items-center gap-2">

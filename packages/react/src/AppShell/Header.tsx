@@ -10,7 +10,6 @@ import { useState } from 'react';
 import { ResourceAvatar } from '../ResourceAvatar/ResourceAvatar';
 import classes from './Header.module.css';
 import { HeaderDropdown } from './HeaderDropdown';
-import { HeaderSearchInput } from './HeaderSearchInput';
 
 export interface HeaderProps {
   readonly pathname?: string;
@@ -27,23 +26,32 @@ export function Header(props: HeaderProps): JSX.Element {
   const profile = useMedplumProfile();
   const [userMenuOpened, setUserMenuOpened] = useState(false);
 
+  const isRootPath = props.pathname === '/' || props.pathname === '';
+
   return (
-    <MantineAppShell.Header p={8} style={{ zIndex: 101 }}>
-      <Group justify="space-between">
-        <Group gap="xs">
+    <MantineAppShell.Header style={{ zIndex: 101, backgroundColor: '#f8f9fa', display: 'flex', alignItems: 'center' }}>
+      <Group justify="space-between" align="center" style={{ width: '100%' }} h="100%">
+        {isRootPath ? (
+          <img
+            src="/img/AppteonLogo.png"
+            alt="Appteon Logo"
+            style={{ height: '40px', width: 'auto', display: 'block' }}
+          />
+        ) : (
           <UnstyledButton
             className={classes.logoButton}
             aria-expanded={props.navbarOpen}
             aria-controls="navbar"
             onClick={() => props.navbarToggle()}
+            style={{ display: 'flex', alignItems: 'center', height: '40px' }}
           >
             {props.logo}
           </UnstyledButton>
-          {!props.headerSearchDisabled && (
-            <HeaderSearchInput pathname={props.pathname} searchParams={props.searchParams} />
-          )}
-        </Group>
-        <Group gap="lg" pr="sm">
+        )}
+        <Text size="xl" fw={700} style={{ color: 'var(--mantine-color-dark-7)', position: 'absolute', left: '50%', transform: 'translateX(-50%)' }}>
+          Medical AI Assistant
+        </Text>
+        <Group gap="lg" align="center">
           {props.notifications}
           <Menu
             width={260}
@@ -59,8 +67,9 @@ export function Header(props: HeaderProps): JSX.Element {
                 aria-label="User menu"
                 data-active={userMenuOpened || undefined}
                 onClick={() => setUserMenuOpened((o) => !o)}
+                style={{ display: 'flex', alignItems: 'center', height: '40px' }}
               >
-                <Group gap={7}>
+                <Group gap={7} align="center" wrap="nowrap">
                   <ResourceAvatar value={profile} radius="xl" size={24} />
                   <Text size="sm" className={classes.userName}>
                     {formatHumanName(profile?.name?.[0] as HumanName)}

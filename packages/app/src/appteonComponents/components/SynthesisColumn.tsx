@@ -1164,14 +1164,23 @@ export const SynthesisColumn = ({
             <p className="text-sm text-muted-foreground text-center">
               {activeTab === 'synthesis' ? 'Synthesis notes will be available after first encounter is recorded.' : 'New patient, no data available.'}
             </p>
-            {showRegenerateButton && (
+            {(showRegenerateButton || activeTab === 'pre-chart') && (
               <button
                   onClick={() => onGenerate()}
                 disabled={isLoading}
                 className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <Sparkles className="w-4 h-4" />
-                Generate {activeTab === 'synthesis' ? 'Synthesis' : 'Pre-Chart'}
+                {isLoading ? (
+                  <>
+                    <Sparkles className="w-4 h-4 animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4" />
+                    {activeTab === 'synthesis' ? 'Generate Synthesis' : 'Generate new Pre-Chart notes'}
+                  </>
+                )}
               </button>
             )}
           </div>
@@ -2881,13 +2890,34 @@ export const SynthesisColumn = ({
                 copySection={copySection}
                 copiedSection={copiedSection}
                 getLastTranscriptSummary={getLastTranscriptSummary}
+                onGeneratePreChart={onGeneratePreChart}
+                preChartLoading={preChartLoading}
               />
             )}
 
             {/* Pre-Chart fallback when no parsed data */}
             {activeTab === 'pre-chart' && !preChartData && currentNote && (
-              <div className="text-sm text-muted-foreground text-center py-8">
-                Unable to parse pre-chart note data. The note may be in an old format.
+              <div className="flex flex-col items-center justify-center gap-4 py-8">
+                <div className="text-sm text-muted-foreground text-center">
+                  Unable to parse pre-chart note data. The note may be in an old format.
+                </div>
+                <button
+                  onClick={() => onGeneratePreChart()}
+                  disabled={preChartLoading}
+                  className="flex items-center gap-2 px-4 py-2 text-sm bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {preChartLoading ? (
+                    <>
+                      <Sparkles className="w-4 h-4 animate-spin" />
+                      Generating...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4" />
+                      Generate new Pre-Chart notes
+                    </>
+                  )}
+                </button>
               </div>
             )}
           </>

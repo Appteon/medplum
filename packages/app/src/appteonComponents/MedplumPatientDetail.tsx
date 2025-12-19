@@ -362,7 +362,18 @@ export function MedplumPatientDetail({ selectedPatientId }: MedplumPatientDetail
       }
       const result = await resp.json();
       if (!result.ok) throw new Error(result.error || 'Failed to generate');
-      setPreChartNote(result.note);
+
+      // Refresh latest notes to ensure we have the most up-to-date data
+      const listResp = await fetch(`${httpBase}/api/medai/medplum/pre-chart-notes/notes/${selectedPatientId}`, {
+        credentials: 'include'
+      });
+      if (listResp.ok) {
+        const listJson = await listResp.json();
+        if (listJson.ok && Array.isArray(listJson.notes) && listJson.notes.length) {
+          setPreChartNote(listJson.notes[0]);
+          setPreChartHistory(listJson.notes.slice(1));
+        }
+      }
     } catch (e: any) {
       console.error('Failed to generate Pre-Chart note:', e);
       alert(`Failed to generate Pre-Chart note: ${e.message}`);

@@ -242,6 +242,41 @@ healthscribeRouter.post('/scribe/generate', async (req, res): Promise<void> => {
 				const assessment = aiResult.assessment || 'Not documented';
 				const plan = aiResult.plan || 'Not documented';
 
+				// Build properly formatted summary for frontend parsing
+				const summaryLines: string[] = [];
+				summaryLines.push('CHIEF COMPLAINT');
+				summaryLines.push(chiefComplaint);
+				summaryLines.push('');
+				
+				summaryLines.push('KEY POINTS');
+				// Extract key sentences from subjective and objective
+				const extractSentences = (text: string, limit: number = 2): string[] => {
+					if (!text || text.includes('Not documented')) return [];
+					return text
+						.split(/[.!?]\s+/)
+						.filter((s) => s.trim().length > 15)
+						.slice(0, limit)
+						.map((s) => `- ${s.trim()}`);
+				};
+				const keyPoints = [
+					...extractSentences(subjective, 2),
+					...extractSentences(objective, 1),
+				];
+				summaryLines.push(keyPoints.length > 0 ? keyPoints.join('\n') : '- See assessment and plan below');
+				summaryLines.push('');
+
+				summaryLines.push('ASSESSMENT & PLAN');
+				const apLines: string[] = [];
+				if (!assessment.includes('Not documented')) {
+					apLines.push(...extractSentences(assessment, 2).map((s) => s));
+				}
+				if (!plan.includes('Not documented')) {
+					apLines.push(...extractSentences(plan, 3).map((s) => s));
+				}
+				summaryLines.push(apLines.length > 0 ? apLines.join('\n') : 'See subjective and objective above');
+
+				const formattedSummary = summaryLines.join('\n');
+
 				const scribeDoc = await repo.createResource<DocumentReference>({
 					resourceType: 'DocumentReference',
 					status: 'current',
@@ -257,9 +292,7 @@ healthscribeRouter.post('/scribe/generate', async (req, res): Promise<void> => {
 						{
 							attachment: {
 								contentType: 'text/plain',
-								data: Buffer.from(
-									`SUBJECTIVE:\n${subjective}\n\nOBJECTIVE:\n${objective}\n\nASSESSMENT:\n${assessment}\n\nPLAN:\n${plan}`
-								).toString('base64'),
+								data: Buffer.from(formattedSummary).toString('base64'),
 							},
 						},
 					],
@@ -537,83 +570,27 @@ healthscribeRouter.get('/scribe-notes/:patientId', async (req, res): Promise<voi
 				const modelExt = doc.extension?.find(
 					(ext) => ext.url === 'http://medplum.com/fhir/StructureDefinition/ai-model'
 				);
-				const chiefComplaintExt = doc.extension?.find(
-					(ext) => ext.url === 'http://medplum.com/fhir/StructureDefinition/chief-complaint'
-				);
-				const subjectiveExt = doc.extension?.find(
-					(ext) => ext.url === 'http://medplum.com/fhir/StructureDefinition/soap-subjective'
-				);
-				const objectiveExt = doc.extension?.find(
-					(ext) => ext.url === 'http://medplum.com/fhir/StructureDefinition/soap-objective'
-				);
-				const assessmentExt = doc.extension?.find(
-					(ext) => ext.url === 'http://medplum.com/fhir/StructureDefinition/soap-assessment'
-				);
-				const planExt = doc.extension?.find(
-					(ext) => ext.url === 'http://medplum.com/fhir/StructureDefinition/soap-plan'
-				);
 
-				// Extract key points from subjective and objective sections
-				const extractKeyPoints = (text: string): string[] => {
-					if (!text || text === 'Not documented' || text === 'Not documented in encounter') return [];
-					// Split by sentences and filter out very short ones
-					const sentences = text.split(/[.!?]\s+/).filter(s => s.trim().length > 15);
-					return sentences.slice(0, 3).map(s => s.trim());
-				};
-
-				const subjectiveText = subjectiveExt?.valueString || '';
-				const objectiveText = objectiveExt?.valueString || '';
-				const assessmentText = assessmentExt?.valueString || '';
-				const planText = planExt?.valueString || '';
-
-				// Extract key points from subjective and objective
-				const keyPoints = [
-					...extractKeyPoints(subjectiveText),
-					...extractKeyPoints(objectiveText),
-				].slice(0, 3);
-
-				// Extract assessment and plan points separately and combine them
-				const assessmentPoints = extractKeyPoints(assessmentText);
-				const planPoints = extractKeyPoints(planText);
-				
-				// Combine assessment and plan, preferring plan items if we need to limit
-				const assessmentPlan = [...assessmentPoints, ...planPoints].slice(0, 4);
-
-				// Build a structured summary in the format expected by the frontend parser
-				const chiefComplaint = chiefComplaintExt?.valueString || doc.description || 'Not documented';
-				
-				const summaryParts = [
-					`CHIEF COMPLAINT\n${chiefComplaint}`,
-				];
-
-				if (keyPoints.length > 0) {
-					summaryParts.push(`KEY POINTS\n${keyPoints.map((kp, i) => `${i + 1}. ${kp}`).join('\n')}`);
-				}
-
-				if (assessmentPlan.length > 0) {
-					summaryParts.push(`ASSESSMENT & PLAN\n${assessmentPlan.map((ap, i) => `${i + 1}. ${ap}`).join('\n')}`);
-				} else if (assessmentText || planText) {
-					// If we couldn't extract sentences but have text, use it directly
-					// Filter out "Not documented" placeholders before combining
-					const validTexts = [assessmentText, planText].filter(
-						t => t && t !== 'Not documented' && t !== 'Not documented in encounter'
-					);
-					if (validTexts.length > 0) {
-						const combinedText = validTexts.join('. ');
-						summaryParts.push(`ASSESSMENT & PLAN\n${combinedText.substring(0, 300)}`);
+				// Get the summary from the content attachment (which is already properly formatted)
+				const contentData = doc.content?.[0]?.attachment?.data;
+				let summary = 'No summary available';
+				if (contentData) {
+					try {
+						summary = Buffer.from(contentData, 'base64').toString('utf-8');
+					} catch (e) {
+						console.error('Failed to decode content:', e);
 					}
 				}
-
-				const summary = summaryParts.join('\n\n');
 
 				return {
 					id: doc.id,
 					patient_id: patientId,
 					job_name: jobNameExt?.valueString || '',
 					model: modelExt?.valueString || 'llama3',
-					summary: summary || 'No summary available',
+					summary: summary,
 					created_at: doc.date,
 					visit_date: doc.date,
+					date: doc.date,
 				};
 			});
 
