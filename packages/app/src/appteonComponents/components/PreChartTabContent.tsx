@@ -119,6 +119,74 @@ export function PreChartTabContent({
         <p className="text-sm">{preChartData.reasonForVisit || 'Not specified'}</p>
       </div>
 
+      {/* Last Encounter Summary Card */}
+      <div className="emr-medical-card">
+        <div className="emr-medical-card-header flex items-center gap-2">
+          <div className="flex items-center gap-2">
+            <FileText className="w-4 h-4" />
+            Last Encounter Summary
+          </div>
+          <button onClick={() => copySection('lastEncounter')} className="ml-auto flex items-center gap-2 px-2 py-1 text-xs bg-muted rounded-md hover:bg-muted/80">
+            {copiedSection === 'lastEncounter' ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-3 h-3" />}
+          </button>
+        </div>
+        {(() => {
+          // Helper to check if a string is valid JSON
+          const isValidJsonString = (str: string): boolean => {
+            if (typeof str !== 'string') return false;
+            const trimmed = str.trim();
+            return (trimmed.startsWith('{') || trimmed.startsWith('['));
+          };
+
+          // Helper to validate summary is not JSON
+          const isValidSummary = (summary: string | undefined): boolean => {
+            if (!summary || typeof summary !== 'string') return false;
+            return !isValidJsonString(summary);
+          };
+
+          // Check if we have a valid summary from preChartData
+          const encounterSummary = preChartData.lastEncounterSummary;
+          if (encounterSummary && encounterSummary.summary && isValidSummary(encounterSummary.summary)) {
+            return (
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  {encounterSummary.date && <span>{encounterSummary.date}</span>}
+                  {encounterSummary.provider && <span>{encounterSummary.provider}</span>}
+                </div>
+                <p className="text-justify">{encounterSummary.summary}</p>
+                {encounterSummary.keyTakeaways && encounterSummary.keyTakeaways.length > 0 && (
+                  <div>
+                    <div className="text-xs font-medium text-muted-foreground mb-1">Key Takeaways</div>
+                    <ul className="list-disc list-inside space-y-1">
+                      {encounterSummary.keyTakeaways.map((item, i) => (
+                        <li key={i} className="text-xs">{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            );
+          }
+
+          // Fall back to transcript summary
+          const fb = getLastTranscriptSummary();
+          if (fb && fb.summary && isValidSummary(fb.summary)) {
+            return (
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  {fb.date && <span>{fb.date}</span>}
+                  {fb.provider && <span>{fb.provider}</span>}
+                </div>
+                <p className="text-justify">{fb.summary}</p>
+              </div>
+            );
+          }
+
+          // No valid summary available
+          return <p className="text-sm text-muted-foreground">No previous encounter summary available</p>;
+        })()}
+      </div>
+
       {/* Active Problem List Card */}
       <div className="emr-medical-card">
         <div className="emr-medical-card-header flex items-center gap-2">
@@ -666,7 +734,35 @@ export function PreChartTabContent({
             {copiedSection === 'intervalHistory' ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-3 h-3" />}
           </button>
         </div>
-        <p className="text-sm">{preChartData.intervalHistory || 'No interval history available'}</p>
+        {(() => {
+          // Helper to check if a string is valid JSON
+          const isValidJsonString = (str: string): boolean => {
+            if (typeof str !== 'string') return false;
+            const trimmed = str.trim();
+            return (trimmed.startsWith('{') || trimmed.startsWith('['));
+          };
+
+          // Helper to validate summary is not JSON
+          const isValidSummary = (summary: string | undefined): boolean => {
+            if (!summary || typeof summary !== 'string') return false;
+            return !isValidJsonString(summary);
+          };
+
+          // Check if there's a valid previous encounter
+          const encounterSummary = preChartData.lastEncounterSummary;
+          const fb = getLastTranscriptSummary();
+          const hasPreviousEncounter =
+            (encounterSummary && encounterSummary.summary && isValidSummary(encounterSummary.summary)) ||
+            (fb && fb.summary && isValidSummary(fb.summary));
+
+          // If no previous encounter, this is the first visit
+          if (!hasPreviousEncounter) {
+            return <p className="text-sm text-muted-foreground italic">This is the patient's first visit</p>;
+          }
+
+          // Otherwise, show interval history
+          return <p className="text-sm">{preChartData.intervalHistory || 'No interval history available'}</p>;
+        })()}
       </div>
 
       {/* Alerts / Care Gaps Card */}
@@ -728,55 +824,6 @@ export function PreChartTabContent({
               </div>
             )}
           </div>
-        )}
-      </div>
-
-      {/* Last Encounter Summary Card */}
-      <div className="emr-medical-card">
-        <div className="emr-medical-card-header flex items-center gap-2">
-          <div className="flex items-center gap-2">
-            <FileText className="w-4 h-4" />
-            Last Encounter Summary
-          </div>
-          <button onClick={() => copySection('lastEncounter')} className="ml-auto flex items-center gap-2 px-2 py-1 text-xs bg-muted rounded-md hover:bg-muted/80">
-            {copiedSection === 'lastEncounter' ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-3 h-3" />}
-          </button>
-        </div>
-        {(
-          preChartData.lastEncounterSummary && preChartData.lastEncounterSummary.summary
-        ) ? (
-          <div className="space-y-2 text-sm">
-            <div className="flex justify-between text-xs text-muted-foreground">
-              {preChartData.lastEncounterSummary?.date && <span>{preChartData.lastEncounterSummary.date}</span>}
-              {preChartData.lastEncounterSummary?.provider && <span>{preChartData.lastEncounterSummary.provider}</span>}
-            </div>
-            <p className="text-justify">{preChartData.lastEncounterSummary.summary}</p>
-            {preChartData.lastEncounterSummary.keyTakeaways && preChartData.lastEncounterSummary.keyTakeaways.length > 0 && (
-              <div>
-                <div className="text-xs font-medium text-muted-foreground mb-1">Key Takeaways</div>
-                <ul className="list-disc list-inside space-y-1">
-                  {preChartData.lastEncounterSummary.keyTakeaways.map((item, i) => (
-                    <li key={i} className="text-xs">{item}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
-        ) : (
-          (() => {
-            const fb = getLastTranscriptSummary();
-            return fb && fb.summary ? (
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between text-xs text-muted-foreground">
-                  {fb.date && <span>{fb.date}</span>}
-                  {fb.provider && <span>{fb.provider}</span>}
-                </div>
-                <p className="text-justify">{fb.summary}</p>
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">No previous encounter summary available</p>
-            );
-          })()
         )}
       </div>
 
