@@ -59,7 +59,7 @@ import { closeWorkers, initWorkers } from './workers';
 import { medAiMedplumRouter } from './integrations/medai/medplum/index.js';
 import { medAiSonioxRouter } from './integrations/medai/soniox/index.js';
 import { initializePreChartScheduler, shutdownPreChartScheduler } from './integrations/medai/medplum/services/preChartScheduler.js';
-import { initializePfSyncScheduler, shutdownPfSyncScheduler } from './integrations/practicefusion/index.js';
+import { initializePfSyncScheduler, shutdownPfSyncScheduler } from './integrations/ehr-fetch/index.js';
 
 let server: http.Server | undefined = undefined;
 

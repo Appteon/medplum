@@ -7,7 +7,7 @@ import { DEFAULT_EXPORT_RESOURCE_TYPES } from '../constants.js';
  * Configuration for the Bulk Data Export client
  */
 export interface BulkExportConfig {
-  /** Practice Fusion FHIR base URL */
+  /** EHR FHIR base URL */
   fhirBaseUrl: string;
   /** Access token for authentication */
   accessToken: string;
@@ -15,6 +15,8 @@ export interface BulkExportConfig {
   resourceTypes?: string[];
   /** Only export resources modified since this date */
   since?: Date;
+  /** Group ID for group-based export (optional - if not provided, uses system-level export) */
+  groupId?: string;
   /** Polling interval in milliseconds (default: 10000) */
   pollingIntervalMs?: number;
   /** Maximum polling attempts before timeout (default: 360 = 1 hour with 10s interval) */
@@ -61,6 +63,10 @@ export interface ParsedResource {
  * Client for FHIR Bulk Data Export operations
  * Implements the FHIR Bulk Data Access specification:
  * https://hl7.org/fhir/uv/bulkdata/
+ *
+ * Supports both:
+ * - System-level export: GET /$export (all data)
+ * - Group-level export: GET /Group/{id}/$export (specific patient group)
  */
 export class BulkExportClient {
   private config: BulkExportConfig;
@@ -76,6 +82,7 @@ export class BulkExportClient {
 
   /**
    * Kick off a bulk export and return the status polling URL
+   * Uses group-based export if groupId is provided, otherwise system-level export
    */
   async kickOffExport(): Promise<string> {
     const baseUrl = this.config.fhirBaseUrl.replace(/\/$/, '');
@@ -89,16 +96,31 @@ export class BulkExportClient {
     }
 
     // Add _since parameter for incremental exports
+    // Use FHIR instant format without milliseconds (Epic requirement)
     if (this.config.since) {
-      params.set('_since', this.config.since.toISOString());
+      // Format: YYYY-MM-DDTHH:mm:ssZ (no milliseconds)
+      const sinceDate = this.config.since.toISOString().replace(/\.\d{3}Z$/, 'Z');
+      params.set('_since', sinceDate);
     }
 
     // Request NDJSON format
     params.set('_outputFormat', 'application/fhir+ndjson');
 
-    const exportUrl = `${baseUrl}/$export?${params.toString()}`;
+    // Determine export endpoint: group-based or system-level
+    let exportPath: string;
+    if (this.config.groupId) {
+      // Group-based export: /Group/{id}/$export
+      exportPath = `/Group/${encodeURIComponent(this.config.groupId)}/$export`;
+      console.log(`[EHRBulkExport] Using group-based export for group: ${this.config.groupId}`);
+    } else {
+      // System-level export: /$export
+      exportPath = '/$export';
+      console.log('[EHRBulkExport] Using system-level export');
+    }
 
-    console.log(`[PFBulkExport] Initiating bulk export: ${exportUrl}`);
+    const exportUrl = `${baseUrl}${exportPath}?${params.toString()}`;
+
+    console.log(`[EHRBulkExport] Initiating bulk export: ${exportUrl}`);
 
     const response = await fetch(exportUrl, {
       method: 'GET',
@@ -112,7 +134,20 @@ export class BulkExportClient {
     // Check for accepted status (202)
     if (response.status !== 202) {
       const errorBody = await response.text();
-      console.error('[PFBulkExport] Export kick-off failed:', response.status, errorBody);
+      console.error('[EHRBulkExport] Export kick-off failed with status:', response.status);
+      console.error('[EHRBulkExport] Response headers:', JSON.stringify(Object.fromEntries(response.headers.entries())));
+      console.error('[EHRBulkExport] Response body:', errorBody);
+      console.error('[EHRBulkExport] Request URL:', exportUrl);
+      console.error('[EHRBulkExport] Access token (first 20 chars):', this.config.accessToken.substring(0, 20) + '...');
+
+      // Try to parse as OperationOutcome if it's JSON
+      try {
+        const parsed = JSON.parse(errorBody);
+        console.error('[EHRBulkExport] Parsed error response:', JSON.stringify(parsed, null, 2));
+      } catch {
+        // Not JSON, already logged as text
+      }
+
       throw new Error(`Bulk export kick-off failed: ${response.status} ${errorBody}`);
     }
 
@@ -122,7 +157,7 @@ export class BulkExportClient {
       throw new Error('Bulk export response missing Content-Location header');
     }
 
-    console.log(`[PFBulkExport] Export initiated, status URL: ${contentLocation}`);
+    console.log(`[EHRBulkExport] Export initiated, status URL: ${contentLocation}`);
     return contentLocation;
   }
 
@@ -142,7 +177,7 @@ export class BulkExportClient {
       }
 
       console.log(
-        `[PFBulkExport] Export in progress (attempt ${attempts}/${this.config.maxPollingAttempts})` +
+        `[EHRBulkExport] Export in progress (attempt ${attempts}/${this.config.maxPollingAttempts})` +
           (status.progress ? `, progress: ${status.progress}%` : '')
       );
 
@@ -183,7 +218,7 @@ export class BulkExportClient {
         error?: { type: string; url: string }[];
       };
 
-      console.log(`[PFBulkExport] Export complete with ${body.output?.length || 0} output files`);
+      console.log(`[EHRBulkExport] Export complete with ${body.output?.length || 0} output files`);
 
       return {
         inProgress: false,
@@ -194,7 +229,7 @@ export class BulkExportClient {
 
     // Error status
     const errorBody = await response.text();
-    console.error('[PFBulkExport] Export status check failed:', response.status, errorBody);
+    console.error('[EHRBulkExport] Export status check failed:', response.status, errorBody);
 
     return {
       inProgress: false,
@@ -206,7 +241,7 @@ export class BulkExportClient {
    * Download and parse an NDJSON file from the export
    */
   async downloadNdjsonFile(fileUrl: string): Promise<Resource[]> {
-    console.log(`[PFBulkExport] Downloading NDJSON file: ${fileUrl}`);
+    console.log(`[EHRBulkExport] Downloading NDJSON file: ${fileUrl}`);
 
     const response = await fetch(fileUrl, {
       method: 'GET',
@@ -224,7 +259,7 @@ export class BulkExportClient {
     const text = await response.text();
     const resources = this.parseNdjson(text);
 
-    console.log(`[PFBulkExport] Parsed ${resources.length} resources from file`);
+    console.log(`[EHRBulkExport] Parsed ${resources.length} resources from file`);
     return resources;
   }
 
@@ -243,7 +278,7 @@ export class BulkExportClient {
         const resource = JSON.parse(trimmed) as Resource;
         resources.push(resource);
       } catch (error) {
-        console.warn('[PFBulkExport] Failed to parse NDJSON line:', error);
+        console.warn('[EHRBulkExport] Failed to parse NDJSON line:', error);
       }
     }
 
@@ -254,7 +289,7 @@ export class BulkExportClient {
    * Delete/cancel a bulk export job
    */
   async deleteExport(statusUrl: string): Promise<void> {
-    console.log(`[PFBulkExport] Cancelling export: ${statusUrl}`);
+    console.log(`[EHRBulkExport] Cancelling export: ${statusUrl}`);
 
     const response = await fetch(statusUrl, {
       method: 'DELETE',
@@ -264,7 +299,7 @@ export class BulkExportClient {
     });
 
     if (!response.ok && response.status !== 404) {
-      console.warn(`[PFBulkExport] Failed to delete export: ${response.status}`);
+      console.warn(`[EHRBulkExport] Failed to delete export: ${response.status}`);
     }
   }
 
@@ -305,10 +340,10 @@ export async function executeBulkExport(config: BulkExportConfig): Promise<{
     // Log summary
     let totalCount = 0;
     for (const [type, typeResources] of resources) {
-      console.log(`[PFBulkExport] Downloaded ${typeResources.length} ${type} resources`);
+      console.log(`[EHRBulkExport] Downloaded ${typeResources.length} ${type} resources`);
       totalCount += typeResources.length;
     }
-    console.log(`[PFBulkExport] Total resources downloaded: ${totalCount}`);
+    console.log(`[EHRBulkExport] Total resources downloaded: ${totalCount}`);
 
     return {
       resources,

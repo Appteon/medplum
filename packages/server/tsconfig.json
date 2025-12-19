@@ -13,6 +13,6 @@
   "include": [
     "src/**/*.ts",
     "src/**/*.json",
-    "src/integrations/practicefusion/**/*.ts"
+    "src/integrations/ehr-fetch/**/*.ts"
   ]
 }

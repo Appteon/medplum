@@ -103,17 +103,69 @@ services:
       PRECHARTSCHEDULER_ENABLED: 'true'
       PRECHARTSCHEDULER_INTERVAL_MS: '1800000'  # 30 minutes (default)
 
-      # Practice Fusion EHR Sync settings
-      # Set PF_SYNC_ENABLED to 'true' to enable automatic sync
-      PF_SYNC_ENABLED: 'true'
-      PF_SYNC_INTERVAL_MS: '86400000'  # 24 hours (default)
-      PF_SYNC_RUN_ON_STARTUP: 'true'  # Run initial sync on startup
-      PF_FHIR_BASE_URL: 'https://api-sandbox.practicefusion.com/fhir/r4/v1'
-      PF_CLIENT_ID: '5d068de1-4cb1-45bf-b9ff-09fa51669ef8'
-      PF_CLIENT_SECRET: '4uRSYIg0f955uhwG480npbBiwk3argUkck5IKH+eC68='
-      # PF_PRIVATE_KEY: ''  # Only needed if using JWT authentication instead of client_secret
-      # PF_KEY_ID: ''  # Only needed if using JWT authentication
-      PF_RESOURCE_TYPES: 'Patient,AllergyIntolerance,Binary,CarePlan,Condition,DiagnosticReport,DocumentReference,Encounter,Immunization,Medication,MedicationRequest,MedicationStatement,Observation,Practitioner,ServiceRequest'
+      # EHR Bulk Data Sync settings
+      # Works with any EHR supporting FHIR Bulk Data Export (Epic, Cerner, Practice Fusion, etc.)
+      # Switch between configurations by commenting/uncommenting the relevant section below
+      EHR_SYNC_ENABLED: 'true'
+      EHR_SYNC_INTERVAL_MS: '86400000'  # 24 hours (default)
+      EHR_SYNC_RUN_ON_STARTUP: 'true'  # Run initial sync on startup
+      EHR_TARGET_PROJECT_ID: 'acd7d2ce-9b81-4a3b-9238-179ffd45e545'  # HealthAI project
+
+      # ========== OPTION 1: Epic Sandbox (CURRENTLY ACTIVE) ==========
+      # Uses JWT authentication with private key
+      EHR_FHIR_BASE_URL: 'https://fhir.epic.com/interconnect-fhir-oauth/api/FHIR/R4'
+      EHR_CLIENT_ID: 'f0bd04ce-c3da-4b3c-ae97-365f5848f4e6'
+      EHR_GROUP_ID: 'e3iabhmS8rsueyz7vaimuiaSmfGvi.QwjVXJANlPOgR83'  # Required for Epic bulk export
+      EHR_IDENTIFIER_SYSTEM: 'https://open.epic.com/fhir'
+      EHR_PRIVATE_KEY: |
+        -----BEGIN PRIVATE KEY-----
+        MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDInf/bWBwH8q3i
+        GJoMbUyN9oskV9zeR8y+QAsI0znGdMAFuyjMdMp2dppdiSxF+aGBoATI5Cu+rNys
+        1QKEoCx+3hIus3JOaHcVnlL+S7bLJULa8tM/jzkjnZ31sMkySHZlfewIXbxUgylR
+        8OTBPG+OQ8f+Ufa9jsjNdMkE62McAgukCyf6/i1Dk1CLexZQbQ69F3FJmmdlgsCx
+        Hgz2mUUM0+Q00TSDbtEnezmUd9RtULmbjMzgcX0vUNnVB80LzMfaeqm4BulPlLA+
+        2IDbOJc+VgClq9ddwi2zKH6/eztQh0Yf0TfsbEmUqsjmuL2dSnWMmBNe5mevA0mG
+        j6jLlwQBAgMBAAECggEAIczbAXf2GxG0YbJO7BaTLhzygwBJrmqu8IPmSAmcg5cC
+        jkSjAlWQEgb4CZfVrYF6SFZvT/B/fUvvDzCBUNqSvJpKOnOR5+t6WtpWtdEIXnAr
+        9Csy09Pb5ugEp9MuBsqGJiHh3WP7mcqScOOTCwqVagT6AluJZJUUuGb7glhtVZen
+        QDITNVf6apPYgFenVmWqLx0JoCQMjNnJlowCIopPQ8U2B1hcRWrZt7NvWmB7DL9f
+        xHxQu6EiEkFI6CMz1N2dYVdfN7W/1OYeDjS7dxypWiWenMjTgT3dsuMLIEMM0AgT
+        ng6p8o87Y/yjVFnv6SZv12Kl87LdFx4VjuOXcRqkVQKBgQDnfDdIJFjerfLw7cyD
+        U4QcDhZDpdwU3PSSjUneeB2cWCcItY8ez8jqNxbLnCXpirTMLrWqUTOXJqdfLy8V
+        kOboYUtLzFNrtGNdvHdz+BQN7CYrahQR/FWnQEwFpCgYj94xf4506kyxwzcAdIGp
+        /XTYyPLcFjPrDj+QNWlwLx+XLQKBgQDd3Ov7oJMZ1oI20Wu9cZw41wckjwSer50k
+        P+0uoFKLn9yX+GOrw6d/rE0O4FtMJUjK3aNRXuwQO45MCuOM7cAjz7dYDZYdWHfb
+        a1It3YjtWCtOT7xrW8UUpXfGk8VpXBrlkcr0XQhJqcVc24904dy96q7S8ap/sFW4
+        STALNgFkpQKBgQCoXp0HCAjrzrIJs60xSCmrDkP7aEQvmJb7kXDNM6i18xhRKV20
+        F4YXdYJLDoQ03gKrEL5p5y4THrZWcUdZ9E8/bqUJuNBkYoxzvYVVAHf1uHH62elH
+        O7ZBNG8XG1NeqiX+8rx3JYQrN8ZlulglgIjgtSiQFEYnDfIFvhO22U+s8QKBgQDS
+        wXqqne8fLFamHGpsm+/7TsjKQdHxrIFqXg/Bqyq+2C2Fb7+++y2yassIxrfzrbdo
+        fwMV2UYGZYzXT8C5r2BGpJtWWhGv7sps9ZYrW7cnQApjaftjQNoGsukFCnsNiyFB
+        0y0o1Pd6gnupqiisr6IyBy3r1QZSJgBH/75T6AmKwQKBgGDmGn0lnt0TI9+6wvWH
+        bEPyQ2YcRG9fzskFkIvUQrDYRiARDO+9tYYNgmg7O41xOyFbQE3BBoPBpQiagAcc
+        53BPvjt8WTTAsEL0fpg+v3Vy07Do2+A+rMnCQ7lw+zE6BU01v4ZF9mtQTRPNu8n5
+        3iLf90E0eefIqgZ/1OXAxPrt
+        -----END PRIVATE KEY-----
+      EHR_KEY_ID: 'fpjEcqpWKazjMCPu'  # From your JWKS
+      # Epic-specific scopes for bulk data export
+      EHR_SCOPES: 'system/Patient.read system/AllergyIntolerance.read system/Binary.read system/CarePlan.read system/Condition.read system/DiagnosticReport.read system/DocumentReference.read system/Encounter.read system/Immunization.read system/Medication.read system/MedicationRequest.read system/MedicationStatement.read system/Observation.read system/Practitioner.read system/ServiceRequest.read'
+      # Comment out client_secret when using Epic:
+      # EHR_CLIENT_SECRET: ''
+
+      # ========== OPTION 2: Practice Fusion Sandbox ==========
+      # Uncomment these lines and comment out Epic configuration above to switch
+      # Uses client_secret authentication (simpler)
+      # EHR_FHIR_BASE_URL: 'https://api-sandbox.practicefusion.com/fhir/r4/v1'
+      # EHR_CLIENT_ID: '5d068de1-4cb1-45bf-b9ff-09fa51669ef8'
+      # EHR_CLIENT_SECRET: '4uRSYIg0f955uhwG480npbBiwk3argUkck5IKH+eC68='
+      # EHR_IDENTIFIER_SYSTEM: 'https://practicefusion.com/fhir'
+      # Comment out these when using Practice Fusion (doesn't need them):
+      # EHR_GROUP_ID: ''
+      # EHR_PRIVATE_KEY: ''
+      # EHR_KEY_ID: ''
+
+      # Resource types to export from EHR
+      EHR_RESOURCE_TYPES: 'Patient,AllergyIntolerance,Binary,CarePlan,Condition,DiagnosticReport,DocumentReference,Encounter,Immunization,Medication,MedicationRequest,MedicationStatement,Observation,Practitioner,ServiceRequest'
 
     healthcheck:
       test:
