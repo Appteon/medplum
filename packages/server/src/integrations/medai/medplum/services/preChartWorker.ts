@@ -157,15 +157,73 @@ interface GeneratedNote {
 }
 
 /**
+ * Calculate age from date of birth string
+ */
+function calculateAge(dob: string | null | undefined): string {
+  if (!dob) return 'N/A';
+  const birthDate = new Date(dob);
+  const today = new Date();
+  let age = today.getFullYear() - birthDate.getFullYear();
+  const monthDiff = today.getMonth() - birthDate.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+    age--;
+  }
+  return age.toString();
+}
+
+/**
+ * Convert Date or string to ISO string, handling null/undefined
+ */
+function toIsoString(date: string | Date | null | undefined): string {
+  if (!date) return '';
+  if (typeof date === 'string') return date;
+  return date.toISOString();
+}
+
+/**
+ * Get a repository with the patient's project context
+ * This ensures DocumentReferences are created in the correct project
+ */
+export async function getRepoForPatient(patientId: string) {
+  const systemRepo = getSystemRepo();
+
+  // Fetch patient to get project context
+  const patient = (await systemRepo.readResource('Patient', patientId)) as Patient;
+
+  // Get the patient's project from meta
+  const projectId = (patient.meta?.project as string) || undefined;
+  if (!projectId) {
+    throw new Error(`Patient ${patientId} does not have a project associated`);
+  }
+
+  // Fetch the project
+  const project = await systemRepo.readResource('Project', projectId);
+
+  // Create a repository with the patient's project context
+  const { Repository } = await import('../../../../fhir/repo.js');
+  return {
+    repo: new Repository({
+      superAdmin: true,
+      strictMode: true,
+      extendedMode: true,
+      author: {
+        reference: 'system',
+      },
+      currentProject: project as any,
+      projects: [project as any],
+    }),
+    patient,
+  };
+}
+
+/**
  * Generate pre-chart note for a single patient
  * Fetches all patient medical data from Medplum and generates a comprehensive pre-chart note
  */
 export async function generatePreChartNoteForPatient(patientId: string, appointmentReason?: string): Promise<GeneratedNote> {
   return await requestContextStore.run(AuthenticatedRequestContext.system(), async () => {
-    const repo = getSystemRepo();
-
-    // Fetch patient
-    const patient = (await repo.readResource('Patient', patientId)) as Patient;
+    // Get repository with patient's project context
+    const { repo, patient } = await getRepoForPatient(patientId);
 
     // Build PreChartContext from Medplum FHIR resources
     const context: PreChartContext = {
@@ -686,6 +744,134 @@ export async function generatePreChartNoteForPatient(patientId: string, appointm
       throw new Error(`Failed to generate pre-chart note content for patient ${patientId}`);
     }
 
+    // Build structured JSON for frontend parsing
+    const structuredNote = {
+      noteType: 'pre-chart' as const,
+      patientDemographics: {
+        name: `${patient.name?.[0]?.given?.[0] || ''} ${patient.name?.[0]?.family || ''}`.trim(),
+        dob: patient.birthDate || 'N/A',
+        age: patient.birthDate ? calculateAge(patient.birthDate) : 'N/A',
+        gender: patient.gender || 'N/A',
+        mrn: patient.id || 'N/A',
+        preferredLanguage: (patient.communication?.[0]?.language?.text || 'English') as string,
+        phone: (patient.telecom?.find((t: any) => t.system === 'phone')?.value || '') as string,
+        email: (patient.telecom?.find((t: any) => t.system === 'email')?.value || '') as string,
+        address: patient.address?.[0]
+          ? `${patient.address[0].line?.join(' ') || ''} ${patient.address[0].city || ''} ${patient.address[0].state || ''} ${patient.address[0].postalCode || ''}`.trim()
+          : '',
+        preferredPharmacy: '',
+      },
+      reasonForVisit: context.reason_for_visit || 'Not specified',
+      activeProblemList: context.chronic_conditions?.map((c) => ({
+        problem: c.condition_name,
+        onsetDate: c.diagnosis_time || c.recorded_at || undefined,
+        lastUpdated: c.recorded_at || undefined,
+        status: c.status || undefined,
+        control: c.control_level || undefined,
+      })) || [],
+      medicationSummary: context.current_medications?.map((m) => ({
+        name: m.medication_name,
+        dose: m.dose ? `${m.dose} ${m.dose_unit || ''}`.trim() : undefined,
+        route: m.route || undefined,
+        frequency: m.frequency || undefined,
+        indication: m.indication || undefined,
+        lastReviewed: m.last_reviewed || undefined,
+      })) || [],
+      allergiesIntolerances: context.allergies?.map((a) => ({
+        allergen: a.allergen,
+        category: a.category || undefined,
+        reaction: a.reaction || undefined,
+        severity: a.severity || undefined,
+        status: a.status || undefined,
+      })) || [],
+      vitalSignsTrends: (() => {
+        // Group vitals by date
+        const vitalsByDate = new Map<string, any>();
+        context.vitals?.forEach((v) => {
+          const date = toIsoString(v.recorded_at);
+          if (!vitalsByDate.has(date)) {
+            vitalsByDate.set(date, { date });
+          }
+          const entry = vitalsByDate.get(date);
+          const type = v.type.toLowerCase();
+
+          if (type.includes('systolic')) {
+            entry.bp = entry.bp ? `${v.value}/${entry.bp.split('/')[1]}` : `${v.value}/?`;
+          } else if (type.includes('diastolic')) {
+            entry.bp = entry.bp ? `${entry.bp.split('/')[0]}/${v.value}` : `?/${v.value}`;
+          } else if (type.includes('blood pressure')) {
+            entry.bp = v.value;
+          } else if (type.includes('heart rate') || type.includes('pulse')) {
+            entry.hr = v.value;
+          } else if (type.includes('temperature')) {
+            entry.temp = v.value;
+          } else if (type.includes('weight')) {
+            entry.weight = v.value;
+          } else if (type.includes('bmi')) {
+            entry.bmi = v.value;
+          } else if (type.includes('respiratory rate') || type.includes('respiration')) {
+            entry.rr = v.value;
+          } else if (type.includes('oxygen') || type.includes('spo2')) {
+            entry.spo2 = v.value;
+          }
+        });
+        return Array.from(vitalsByDate.values());
+      })(),
+      keyLabsResults: context.lab_results?.map((l) => ({
+        name: l.test_name,
+        value: String(l.value),
+        unit: l.unit || undefined,
+        date: l.recorded_at || undefined,
+        status: undefined,
+        referenceRange: undefined,
+      })) || [],
+      immunizationsPreventiveCare: {
+        immunizations: context.immunizations?.map((i) => ({
+          vaccine: i.vaccine_name,
+          date: i.date || undefined,
+          status: i.status || undefined,
+          doseNumber: i.dose_number ? String(i.dose_number) : undefined,
+        })) || [],
+        preventiveCare: context.preventive_care?.map((p) => ({
+          item: p.item,
+          category: p.category || undefined,
+          lastDate: p.last_date || undefined,
+          nextDue: p.next_due || undefined,
+          status: p.status || undefined,
+        })) || [],
+      },
+      surgicalProcedureHistory: context.procedures?.map((p) => ({
+        procedure: p.procedure_name,
+        date: p.date || undefined,
+        notes: p.notes || undefined,
+      })) || [],
+      socialFamilyHistory: {
+        social: {
+          smoking: context.social_history?.smoking_history || '',
+          alcohol: context.social_history?.alcohol_use_history || '',
+          drugs: context.social_history?.drug_use_history || '',
+          activityLevel: context.social_history?.activity_level || '',
+        },
+        family: context.family_history?.text || '',
+      },
+      intervalHistory: summary, // Use AI-generated summary as interval history
+      alertsOverdueCareGaps: {
+        alerts: [],
+        overdueItems: [],
+        careGaps: [],
+      },
+      lastEncounterSummary: context.past_notes?.[0] ? {
+        date: context.past_notes[0].recorded_at || undefined,
+        summary: context.past_notes[0].note,
+        provider: context.past_notes[0].entered_by || undefined,
+        keyTakeaways: [],
+      } : null,
+      suggestedActions: [],
+    };
+
+    // Convert structured note to JSON string for storage
+    const contentJson = JSON.stringify(structuredNote);
+
     // Store as DocumentReference in Medplum
     const docRef: DocumentReference = {
       resourceType: 'DocumentReference',
@@ -715,22 +901,26 @@ export async function generatePreChartNoteForPatient(patientId: string, appointm
         reference: `Patient/${patientId}`,
       },
       date: new Date().toISOString(),
-      description: summary.substring(0, 200) + (summary.length > 200 ? '...' : ''),
+      description: `Pre-Chart Note for ${structuredNote.patientDemographics.name}`,
       extension: [
         {
           url: 'http://medplum.com/fhir/StructureDefinition/pre-chart-content',
-          valueString: summary,
+          valueString: contentJson,
         },
         {
           url: 'http://medplum.com/fhir/StructureDefinition/ai-model',
           valueString: model,
         },
+        {
+          url: 'http://medplum.com/fhir/StructureDefinition/ai-summary',
+          valueString: summary,
+        },
       ],
       content: [
         {
           attachment: {
-            contentType: 'text/plain',
-            data: Buffer.from(summary).toString('base64'),
+            contentType: 'application/json',
+            data: Buffer.from(contentJson).toString('base64'),
           },
         },
       ],
@@ -750,7 +940,7 @@ export async function generatePreChartNoteForPatient(patientId: string, appointm
       patient_id: patientId,
       created_at: createdDoc.date || new Date().toISOString(),
       summary_text: createdDoc.description || '',
-      content: summary,
+      content: contentJson,
       model: model,
     };
   });

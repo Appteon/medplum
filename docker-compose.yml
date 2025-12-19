@@ -101,7 +101,8 @@ services:
       
       # Pre-chart scheduler settings
       PRECHARTSCHEDULER_ENABLED: 'true'
-      PRECHARTSCHEDULER_INTERVAL_MS: '1800000'  # 30 minutes (default)
+      # PRECHARTSCHEDULER_INTERVAL_MS: '1800000'  # 30 minute (default)
+      PRECHARTSCHEDULER_INTERVAL_MS: '60000'  # 1 minute
 
       # EHR Bulk Data Sync settings
       # Works with any EHR supporting FHIR Bulk Data Export (Epic, Cerner, Practice Fusion, etc.)

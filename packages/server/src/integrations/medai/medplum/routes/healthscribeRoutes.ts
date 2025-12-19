@@ -9,6 +9,7 @@ import type { Binary } from '@medplum/fhirtypes';
 import { getSystemRepo } from '../../../../fhir/repo.js';
 import { generateAIScribeNotes } from '../../ai/index.js';
 import { getBinaryStorage } from '../../../../storage/loader.js';
+import { getRepoForPatient } from '../services/preChartWorker.js';
 
 export const healthscribeRouter = Router();
 
@@ -30,7 +31,7 @@ healthscribeRouter.post('/upload-audio', async (req, res): Promise<void> => {
 		console.log('Uploading audio with jobName:', jobName, 'patientId:', patientId, 'duration:', duration);
 
 		const result = await requestContextStore.run(AuthenticatedRequestContext.system(), async () => {
-			const repo = getSystemRepo();
+			const { repo } = await getRepoForPatient(patientId);
 			const storage = getBinaryStorage();
 			
 			// Read the audio data from the request stream
@@ -125,7 +126,7 @@ healthscribeRouter.post('/batch/start', async (req, res): Promise<void> => {
 		}
 
 		const diagnosticReportId = await requestContextStore.run(AuthenticatedRequestContext.system(), async () => {
-			const repo = getSystemRepo();
+			const { repo } = await getRepoForPatient(patientId);
 			const dr = await repo.createResource({
 				resourceType: 'DiagnosticReport',
 				status: 'registered',
@@ -198,7 +199,7 @@ healthscribeRouter.post('/scribe/generate', async (req, res): Promise<void> => {
 		}
 
 		const result = await requestContextStore.run(AuthenticatedRequestContext.system(), async () => {
-			const repo = getSystemRepo();
+			const { repo } = await getRepoForPatient(patient_id);
 
 			// Store the raw transcript
 			const transcriptDoc = await repo.createResource<DocumentReference>({

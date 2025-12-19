@@ -92,10 +92,20 @@ preChartNotesRouter.post('/notes/save', async (req, res): Promise<void> => {
 				} else {
 					ext.push({ url: 'http://medplum.com/fhir/StructureDefinition/pre-chart-content', valueString: content });
 				}
-				existing.description = content.substring(0, 200) + (content.length > 200 ? '...' : '');
+				// Try to parse content to extract a better description
+				let description = content.substring(0, 200) + (content.length > 200 ? '...' : '');
+				try {
+					const parsed = JSON.parse(content);
+					if (parsed.noteType === 'pre-chart' && parsed.patientDemographics?.name) {
+						description = `Pre-Chart Note for ${parsed.patientDemographics.name}`;
+					}
+				} catch {
+					// Not JSON, use substring
+				}
+				existing.description = description;
 				existing.extension = ext;
 				existing.content = [
-					{ attachment: { contentType: 'text/plain', data: Buffer.from(content).toString('base64') } },
+					{ attachment: { contentType: 'application/json', data: Buffer.from(content).toString('base64') } },
 				];
 				const updated = (await repo.updateResource(existing)) as DocumentReference;
 				return {
@@ -107,6 +117,17 @@ preChartNotesRouter.post('/notes/save', async (req, res): Promise<void> => {
 					model: updated.extension?.find((e: any) => e.url === 'http://medplum.com/fhir/StructureDefinition/ai-model')?.valueString ?? null,
 				};
 			} else {
+				// Try to parse content to extract a better description
+				let description = content.substring(0, 200) + (content.length > 200 ? '...' : '');
+				try {
+					const parsed = JSON.parse(content);
+					if (parsed.noteType === 'pre-chart' && parsed.patientDemographics?.name) {
+						description = `Pre-Chart Note for ${parsed.patientDemographics.name}`;
+					}
+				} catch {
+					// Not JSON, use substring
+				}
+
 				const created = (await repo.createResource({
 					resourceType: 'DocumentReference',
 					status: 'current',
@@ -116,9 +137,9 @@ preChartNotesRouter.post('/notes/save', async (req, res): Promise<void> => {
 					],
 					subject: { reference: `Patient/${patient_id}` },
 					date: new Date().toISOString(),
-					description: content.substring(0, 200) + (content.length > 200 ? '...' : ''),
+					description,
 					extension: [{ url: 'http://medplum.com/fhir/StructureDefinition/pre-chart-content', valueString: content }],
-					content: [{ attachment: { contentType: 'text/plain', data: Buffer.from(content).toString('base64') } }],
+					content: [{ attachment: { contentType: 'application/json', data: Buffer.from(content).toString('base64') } }],
 				})) as DocumentReference;
 				return {
 					id: created.id,

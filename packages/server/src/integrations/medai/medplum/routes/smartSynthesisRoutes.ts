@@ -5,6 +5,7 @@ import { AuthenticatedRequestContext } from '../../../../context.js';
 import { requestContextStore } from '../../../../request-context-store.js';
 import { getSystemRepo } from '../../../../fhir/repo.js';
 import { generateSmartSynthesisNote, type SmartSynthesisContext } from '../../ai/index.js';
+import { getRepoForPatient } from '../services/preChartWorker.js';
 
 export const smartSynthesisRouter = Router();
 
@@ -420,7 +421,7 @@ smartSynthesisRouter.post('/notes/generate', async (req, res): Promise<void> => 
 
 		// Store the generated note
 		const noteId = await requestContextStore.run(AuthenticatedRequestContext.system(), async () => {
-			const repo = getSystemRepo();
+			const { repo } = await getRepoForPatient(patient_id);
 			const doc = await repo.createResource<DocumentReference>({
 				resourceType: 'DocumentReference',
 				status: 'current',
@@ -473,7 +474,7 @@ smartSynthesisRouter.post('/notes/save', async (req, res): Promise<void> => {
 		}
 
 		const note = await requestContextStore.run(AuthenticatedRequestContext.system(), async () => {
-			const repo = getSystemRepo();
+			const { repo } = await getRepoForPatient(patient_id);
 			if (id) {
 				const existing = (await repo.readResource('DocumentReference', id)) as DocumentReference;
 				existing.description = content.substring(0, 500) + (content.length > 500 ? '...' : '');
