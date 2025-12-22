@@ -767,7 +767,7 @@ Reason for Visit: ${context.reason_for_visit || 'Not specified'}
   const allergiesText =
     context.allergies.length > 0
       ? context.allergies.map((a) => `- ${a.allergen}: ${a.reaction || 'reaction unknown'} (${a.severity || ''})`).join('\n')
-      : 'NKDA';
+      : '-';
 
   const vitalsText =
     context.vitals.length > 0
@@ -831,9 +831,15 @@ ${immunizationsText}
 LAST ENCOUNTER:
 ${lastEncounterText}
 
+IMPORTANT FORMATTING RULES:
+1. If a section shows only a dash (-), it means no data is available - DO NOT mention that section in your summary
+2. Do NOT write phrases like "Not on file", "Never Assessed", "Not documented", "None documented" - simply omit those items
+3. Only include information that is actually present and meaningful
+4. Be concise and focus only on clinically relevant data that exists
+
 TASK:
 Create a concise pre-chart note that:
-1. Summarizes the patient's key medical history
+1. Summarizes the patient's key medical history (only items with actual data)
 2. Highlights important conditions and medications
 3. Notes any gaps in care or overdue preventive measures
 4. Suggests potential topics to address during the visit
@@ -841,7 +847,7 @@ Create a concise pre-chart note that:
 
 Return a JSON object:
 {
-  "summary": "The pre-chart preparation note (1-2 paragraphs, concise)",
+  "summary": "The pre-chart preparation note (1-2 paragraphs, concise). Only mention items with actual data.",
   "key_conditions": ["list", "of", "key", "conditions"],
   "medications_to_review": ["meds", "needing", "attention"],
   "gaps_in_care": ["overdue", "items"],

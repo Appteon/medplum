@@ -280,10 +280,8 @@ export function PreChartTabContent({
             {copiedSection === 'allergies' ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-3 h-3" />}
           </button>
         </div>
-        {isMissing(preChartData.allergiesIntolerances) ? (
+        {isMissing(preChartData.allergiesIntolerances) || isEmpty(preChartData.allergiesIntolerances) ? (
           <p className="text-sm text-muted-foreground">-</p>
-        ) : isEmpty(preChartData.allergiesIntolerances) ? (
-          <p className="text-sm text-muted-foreground italic">No known allergies</p>
         ) : (
           <div className="space-y-3">
             {preChartData.allergiesIntolerances.map((allergy, i) => {
@@ -704,22 +702,21 @@ export function PreChartTabContent({
               </div>
             </div>
           )}
-          {preChartData.socialFamilyHistory?.family && (
+          {preChartData.socialFamilyHistory?.family && preChartData.socialFamilyHistory.family.toString().trim() !== '' && preChartData.socialFamilyHistory.family.toString().trim() !== '-' ? (
             <div>
               <div className="text-xs font-medium text-muted-foreground mb-1">Family History</div>
-              <p>{(preChartData.socialFamilyHistory.family && preChartData.socialFamilyHistory.family.toString().trim() !== '-') ? preChartData.socialFamilyHistory.family : 'Not documented'}</p>
+              <p>{preChartData.socialFamilyHistory.family}</p>
             </div>
-          )}
-          {isMissing(preChartData.socialFamilyHistory) ? (
-            <p className="text-muted-foreground">-</p>
-          ) : (!preChartData.socialFamilyHistory?.social ||
+          ) : null}
+          {isMissing(preChartData.socialFamilyHistory) ||
+          ((!preChartData.socialFamilyHistory?.social ||
             (!preChartData.socialFamilyHistory.social.smoking &&
              !preChartData.socialFamilyHistory.social.alcohol &&
              !preChartData.socialFamilyHistory.social.drugs &&
              !preChartData.socialFamilyHistory.social.activityLevel)) &&
-           !preChartData.socialFamilyHistory?.family && (
-            <p className="text-muted-foreground italic">No relevant social or family history documented</p>
-          )}
+           (!preChartData.socialFamilyHistory?.family || preChartData.socialFamilyHistory.family.toString().trim() === '' || preChartData.socialFamilyHistory.family.toString().trim() === '-')) ? (
+            <p className="text-muted-foreground">-</p>
+          ) : null}
         </div>
       </div>
 

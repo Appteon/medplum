@@ -137,7 +137,21 @@ async function upsertResources(
     byType: {} as Record<string, { created: number; updated: number; failed: number }>,
   };
 
-  for (const [resourceType, resources] of resourcesByType) {
+  // Build reference map: EHR reference -> Local reference
+  // This allows us to translate references in resources to point to local IDs
+  const referenceMap = new Map<string, string>();
+
+  // Define processing order - Patient and Practitioner first so we can build reference map
+  const processingOrder = ['Patient', 'Practitioner', 'Medication'];
+  const orderedTypes = [
+    ...processingOrder.filter((t) => resourcesByType.has(t)),
+    ...Array.from(resourcesByType.keys()).filter((t) => !processingOrder.includes(t)),
+  ];
+
+  for (const resourceType of orderedTypes) {
+    const resources = resourcesByType.get(resourceType);
+    if (!resources) continue;
+
     console.log(`[EHRSync] Processing ${resources.length} ${resourceType} resources...`);
 
     stats.byType[resourceType] = { created: 0, updated: 0, failed: 0 };
@@ -149,36 +163,67 @@ async function upsertResources(
     // "ROLLBACK TO SAVEPOINT can only be used in transaction blocks" errors
     for (const resource of resources) {
       try {
+        // Store original EHR ID for reference mapping
+        const ehrId = resource.id;
+
         // Get the source identifier
         const sourceId = getSourceIdentifier(resource);
 
+        // Check if a resource with any of the original EHR identifiers already exists
+        const existingResource = await findExistingResource(repo, resourceType, resource, identifierSystem, sourceId, referenceMap);
+
         // Ensure the resource has our identifier system
-        const resourceWithIdentifier = ensureEhrIdentifier(resource, sourceId, identifierSystem);
+        let resourceWithIdentifier = ensureEhrIdentifier(resource, sourceId, identifierSystem);
 
-        // Use conditional update to upsert
-        const result = await repo.conditionalUpdate(
-          resourceWithIdentifier,
-          {
-            resourceType: resourceType as any,
-            filters: [
-              {
-                code: 'identifier',
-                operator: Operator.EQUALS,
-                value: `${identifierSystem}|${sourceId}`,
-              },
-            ],
-          }
-        );
+        // Translate references to local IDs (for non-Patient/Practitioner resources)
+        resourceWithIdentifier = translateReferences(resourceWithIdentifier, referenceMap);
 
-        // Check outcome to determine if created or updated
-        const outcome = result.outcome;
-        const status = outcome.issue?.[0]?.code || '';
-        if (status === 'informational' || outcome.id?.includes('created')) {
-          stats.created++;
-          stats.byType[resourceType].created++;
-        } else {
+        let localId: string | undefined;
+
+        if (existingResource) {
+          // Update the existing resource by ID to avoid creating a duplicate
+          const updatedResource = { ...resourceWithIdentifier, id: existingResource.id };
+          await repo.updateResource(updatedResource);
+          localId = existingResource.id;
           stats.updated++;
           stats.byType[resourceType].updated++;
+        } else {
+          // No existing resource found - use conditional update to upsert
+          // This handles the case where the resource was previously synced with our identifier
+          const result = await repo.conditionalUpdate(
+            resourceWithIdentifier,
+            {
+              resourceType: resourceType as any,
+              filters: [
+                {
+                  code: 'identifier',
+                  operator: Operator.EQUALS,
+                  value: `${identifierSystem}|${sourceId}`,
+                },
+              ],
+            }
+          );
+
+          localId = result.resource.id;
+
+          // Check outcome to determine if created or updated
+          const outcome = result.outcome;
+          const status = outcome.issue?.[0]?.code || '';
+          if (status === 'informational' || outcome.id?.includes('created')) {
+            stats.created++;
+            stats.byType[resourceType].created++;
+          } else {
+            stats.updated++;
+            stats.byType[resourceType].updated++;
+          }
+        }
+
+        // Add to reference map for Patient, Practitioner, and Medication
+        // These are commonly referenced by other resources
+        if (ehrId && localId && ['Patient', 'Practitioner', 'Medication'].includes(resourceType)) {
+          const ehrRef = `${resourceType}/${ehrId}`;
+          const localRef = `${resourceType}/${localId}`;
+          referenceMap.set(ehrRef, localRef);
         }
       } catch (error) {
         stats.failed++;
@@ -193,7 +238,252 @@ async function upsertResources(
     );
   }
 
+  console.log(`[EHRSync] Reference map built with ${referenceMap.size} entries`);
   return stats;
+}
+
+/**
+ * Translate EHR references to local Medplum references
+ * This ensures resources like Observation.subject point to local Patient IDs
+ */
+function translateReferences(resource: Resource, referenceMap: Map<string, string>): Resource {
+  if (referenceMap.size === 0) {
+    return resource;
+  }
+
+  const resourceCopy = JSON.parse(JSON.stringify(resource));
+
+  // Common reference fields to translate
+  const referenceFields = [
+    'subject',
+    'patient',
+    'performer',
+    'author',
+    'asserter',
+    'recorder',
+    'requester',
+    'prescriber',
+    'medicationReference',
+    'encounter',
+  ];
+
+  for (const field of referenceFields) {
+    if (resourceCopy[field]?.reference) {
+      const ehrRef = resourceCopy[field].reference;
+      const localRef = referenceMap.get(ehrRef);
+      if (localRef) {
+        resourceCopy[field].reference = localRef;
+      }
+    }
+  }
+
+  // Handle array fields like participant, performer (when it's an array)
+  const arrayReferenceFields = ['participant', 'performer', 'author', 'careTeam'];
+  for (const field of arrayReferenceFields) {
+    if (Array.isArray(resourceCopy[field])) {
+      for (const item of resourceCopy[field]) {
+        // Handle direct reference
+        if (item?.reference) {
+          const ehrRef = item.reference;
+          const localRef = referenceMap.get(ehrRef);
+          if (localRef) {
+            item.reference = localRef;
+          }
+        }
+        // Handle actor/member patterns
+        if (item?.actor?.reference) {
+          const ehrRef = item.actor.reference;
+          const localRef = referenceMap.get(ehrRef);
+          if (localRef) {
+            item.actor.reference = localRef;
+          }
+        }
+        if (item?.member?.reference) {
+          const ehrRef = item.member.reference;
+          const localRef = referenceMap.get(ehrRef);
+          if (localRef) {
+            item.member.reference = localRef;
+          }
+        }
+      }
+    }
+  }
+
+  return resourceCopy;
+}
+
+/**
+ * Find an existing resource by checking all identifiers from the EHR resource
+ * This handles deduplication for:
+ * 1. Resources imported through other means (using original EHR identifiers)
+ * 2. Resources previously synced by this integration (using our custom identifier)
+ * 3. Resources without stable IDs (using semantic properties like subject+code+date)
+ */
+async function findExistingResource(
+  repo: Repository,
+  resourceType: string,
+  resource: Resource,
+  ehrIdentifierSystem: string,
+  sourceId: string,
+  referenceMap?: Map<string, string>
+): Promise<Resource | undefined> {
+  // First, check if we previously synced this resource using our custom identifier
+  // This is the most reliable match for resources we've already processed
+  try {
+    const result = await repo.search({
+      resourceType: resourceType as any,
+      count: 1,
+      filters: [
+        {
+          code: 'identifier',
+          operator: Operator.EQUALS,
+          value: `${ehrIdentifierSystem}|${sourceId}`,
+        },
+      ],
+    });
+
+    if (result.entry && result.entry.length > 0) {
+      return result.entry[0].resource;
+    }
+  } catch {
+    // Continue to check original identifiers
+  }
+
+  // Check original EHR identifiers for resources imported through other means
+  const identifiers = (resource as any).identifier;
+  if (Array.isArray(identifiers)) {
+    for (const id of identifiers) {
+      if (id.system && id.value) {
+        try {
+          const result = await repo.search({
+            resourceType: resourceType as any,
+            count: 1,
+            filters: [
+              {
+                code: 'identifier',
+                operator: Operator.EQUALS,
+                value: `${id.system}|${id.value}`,
+              },
+            ],
+          });
+
+          if (result.entry && result.entry.length > 0) {
+            return result.entry[0].resource;
+          }
+        } catch {
+          // Continue to next identifier if search fails
+        }
+      }
+    }
+  }
+
+  // For resources without stable identifiers (like Observations), try semantic matching
+  const semanticMatch = await findBySemanticProperties(repo, resourceType, resource, referenceMap);
+  if (semanticMatch) {
+    return semanticMatch;
+  }
+
+  return undefined;
+}
+
+/**
+ * Find existing resources by semantic properties when identifiers are not stable
+ * This handles EHRs that generate new IDs for each bulk export
+ * Also searches with translated references to find resources synced after reference translation was added
+ */
+async function findBySemanticProperties(
+  repo: Repository,
+  resourceType: string,
+  resource: Resource,
+  referenceMap?: Map<string, string>
+): Promise<Resource | undefined> {
+  const r = resource as any;
+
+  // Helper to try search with both original and translated references
+  async function trySearchWithBothReferences(
+    searchResourceType: string,
+    referenceField: string,
+    originalRef: string,
+    baseFilters: any[]
+  ): Promise<Resource | undefined> {
+    // Try with original EHR reference first (for old data)
+    try {
+      const result = await repo.search({
+        resourceType: searchResourceType as any,
+        count: 1,
+        filters: [{ code: referenceField, operator: Operator.EQUALS, value: originalRef }, ...baseFilters],
+      });
+      if (result.entry && result.entry.length > 0) {
+        return result.entry[0].resource;
+      }
+    } catch {
+      // Continue
+    }
+
+    // Try with translated reference (for data synced after reference translation fix)
+    const translatedRef = referenceMap?.get(originalRef);
+    if (translatedRef) {
+      try {
+        const result = await repo.search({
+          resourceType: searchResourceType as any,
+          count: 1,
+          filters: [{ code: referenceField, operator: Operator.EQUALS, value: translatedRef }, ...baseFilters],
+        });
+        if (result.entry && result.entry.length > 0) {
+          return result.entry[0].resource;
+        }
+      } catch {
+        // Continue
+      }
+    }
+
+    return undefined;
+  }
+
+  // Observation: match by subject + code + effectiveDateTime
+  if (resourceType === 'Observation' && r.subject?.reference && r.code?.coding?.[0]) {
+    const codeFilter = { code: 'code', operator: Operator.EQUALS, value: r.code.coding[0].system + '|' + r.code.coding[0].code };
+    const baseFilters: any[] = [codeFilter];
+
+    // Add date filter if available
+    if (r.effectiveDateTime) {
+      baseFilters.push({ code: 'date', operator: Operator.EQUALS, value: r.effectiveDateTime });
+    } else if (r.effectivePeriod?.start) {
+      baseFilters.push({ code: 'date', operator: Operator.EQUALS, value: r.effectivePeriod.start });
+    }
+
+    const match = await trySearchWithBothReferences('Observation', 'subject', r.subject.reference, baseFilters);
+    if (match) return match;
+  }
+
+  // Condition: match by subject + code + onsetDateTime
+  if (resourceType === 'Condition' && r.subject?.reference && r.code?.coding?.[0]) {
+    const codeFilter = { code: 'code', operator: Operator.EQUALS, value: r.code.coding[0].system + '|' + r.code.coding[0].code };
+    const baseFilters: any[] = [codeFilter];
+
+    if (r.onsetDateTime) {
+      baseFilters.push({ code: 'onset-date', operator: Operator.EQUALS, value: r.onsetDateTime });
+    }
+
+    const match = await trySearchWithBothReferences('Condition', 'subject', r.subject.reference, baseFilters);
+    if (match) return match;
+  }
+
+  // AllergyIntolerance: match by patient + code
+  if (resourceType === 'AllergyIntolerance' && r.patient?.reference && r.code?.coding?.[0]) {
+    const codeFilter = { code: 'code', operator: Operator.EQUALS, value: r.code.coding[0].system + '|' + r.code.coding[0].code };
+    const match = await trySearchWithBothReferences('AllergyIntolerance', 'patient', r.patient.reference, [codeFilter]);
+    if (match) return match;
+  }
+
+  // CarePlan: match by subject + category
+  if (resourceType === 'CarePlan' && r.subject?.reference && r.category?.[0]?.coding?.[0]) {
+    const categoryFilter = { code: 'category', operator: Operator.EQUALS, value: r.category[0].coding[0].system + '|' + r.category[0].coding[0].code };
+    const match = await trySearchWithBothReferences('CarePlan', 'subject', r.subject.reference, [categoryFilter]);
+    if (match) return match;
+  }
+
+  return undefined;
 }
 
 /**
