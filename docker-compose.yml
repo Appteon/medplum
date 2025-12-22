@@ -52,8 +52,8 @@ services:
     volumes:
       # Conditionally define a volume for a `medplum.config.json` if one is specified by the MEDPLUM_CONFIG_PATH env var
       - ${MEDPLUM_CONFIG_PATH:-./medplum.config.json}:/usr/src/medplum/packages/server/medplum.config.json
-      # Persistent storage for uploaded files
-      - medplum_storage:/usr/src/medplum/packages/server/binary
+      # Persistent storage for uploaded files (matches MEDPLUM_BINARY_STORAGE: 'file:./binary/')
+      - medplum_storage:/usr/src/medplum/binary
     entrypoint: >
       sh -c "
       if [ -n '${MEDPLUM_CONFIG_PATH}' ]; then
