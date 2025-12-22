@@ -728,10 +728,27 @@ Output only the JSON object, no other text:`;
  * Generate Pre-Chart Note from patient medical history for clinical preparation
  */
 export async function generatePreChartNote(
-  context: PreChartContext
+  context: PreChartContext,
+  previousPreChartContent?: string | null
 ): Promise<BaseAIResult> {
   const patient = context.patient;
   const age = yearsFromDob(patient.dob);
+
+  // Parse previous pre-chart data if available for comparison
+  let previousData: any = null;
+  if (previousPreChartContent) {
+    try {
+      previousData = JSON.parse(previousPreChartContent);
+      console.log('[PreChartNote] Successfully parsed previous pre-chart data');
+      console.log('[PreChartNote] Previous data keys:', Object.keys(previousData));
+      console.log('[PreChartNote] Previous data preview:', previousPreChartContent.substring(0, 200));
+    } catch (err) {
+      console.warn('[PreChartNote] Could not parse previous pre-chart content:', err);
+      console.warn('[PreChartNote] Content preview:', previousPreChartContent?.substring(0, 200));
+    }
+  } else {
+    console.log('[PreChartNote] No previous pre-chart content provided - this is the first visit');
+  }
 
   const demographicsText = `
 Patient: ${patient.first_name || ''} ${patient.last_name || ''}
@@ -799,9 +816,68 @@ Reason for Visit: ${context.reason_for_visit || 'Not specified'}
     ? `Date: ${safeDate(context.last_encounter.date)}\nProvider: ${context.last_encounter.provider || 'Unknown'}\nSummary: ${context.last_encounter.summary || 'No summary'}`
     : 'No previous encounter documented';
 
+  // Build previous data section for comparison if available
+  let previousDataSection = '';
+  let intervalHistoryInstructions = '';
+  let intervalHistorySchemaDescription = '';
+
+  if (previousData) {
+    // Extract key clinical fields from previous pre-chart in readable format
+    const prevConditions = previousData.activeProblemList || [];
+    const prevMeds = previousData.medicationSummary || [];
+    const prevAllergies = previousData.allergiesIntolerances || [];
+    const prevVitals = previousData.vitalSignsTrends || [];
+    const prevLabs = previousData.keyLabsResults || [];
+
+    previousDataSection = `
+PREVIOUS VISIT DATA (for comparison):
+Date: ${previousData.lastEncounterSummary?.date || 'Unknown'}
+
+Active Problems at Last Visit:
+${prevConditions.length > 0 ? prevConditions.map((c: any) => `- ${c.problem} (${c.status || 'active'})`).join('\n') : '- None documented'}
+
+Medications at Last Visit:
+${prevMeds.length > 0 ? prevMeds.map((m: any) => `- ${m.name} ${m.dose || ''} ${m.frequency || ''}`).join('\n') : '- None documented'}
+
+Allergies at Last Visit:
+${prevAllergies.length > 0 ? prevAllergies.map((a: any) => `- ${a.allergen} (${a.severity || 'unknown severity'})`).join('\n') : '- None documented'}
+
+Most Recent Vitals from Last Visit:
+${prevVitals.length > 0 ? prevVitals.slice(0, 1).map((v: any) => `BP: ${v.bp || 'N/A'}, HR: ${v.hr || 'N/A'}, Weight: ${v.weight || 'N/A'}, Temp: ${v.temp || 'N/A'}`).join('\n') : '- None documented'}
+
+Recent Labs from Last Visit:
+${prevLabs.length > 0 ? prevLabs.slice(0, 5).map((l: any) => `- ${l.name}: ${l.value} ${l.unit || ''} (${l.date || 'no date'})`).join('\n') : '- None documented'}
+`;
+    intervalHistoryInstructions = `
+INTERVAL HISTORY SINCE LAST VISIT:
+Compare the PREVIOUS VISIT DATA with the CURRENT data above. Identify and summarize ONLY what changed:
+- New problems/conditions OR problems that resolved
+- Medications: new starts, discontinuations, dose changes
+- Vital signs: significant trends (BP improved/worsened, weight gain/loss >5 lbs)
+- New lab results OR significant changes in lab values
+- New allergies documented
+
+IMPORTANT:
+- Do NOT list unchanged items
+- Be concise - write 2-4 sentences maximum
+- If truly NOTHING changed, write: "No significant changes documented since last visit."
+- NEVER write "This is the first visit." - previous data IS provided above
+- Focus on clinically meaningful changes only`;
+    
+    intervalHistorySchemaDescription = 'A concise narrative of what changed since last visit (new conditions, medication changes, vital trends, new labs). If nothing changed, write "No significant changes documented since last visit."';
+    console.log('[PreChartNote] Using interval history comparison path (previous data present)');
+  } else {
+    intervalHistoryInstructions = `
+INTERVAL HISTORY SINCE LAST VISIT:
+Since this is the first pre-chart note for this patient, you MUST write exactly: "This is the first visit."`;
+    
+    intervalHistorySchemaDescription = 'This is the first visit.';
+    console.log('[PreChartNote] Using first-visit interval history instructions (no previous data)');
+  }
+
   const prompt = `You are a clinical AI assistant preparing a pre-chart note to help a physician prepare for an upcoming patient visit.
 
-PATIENT INFORMATION:
+CURRENT PATIENT INFORMATION:
 ${demographicsText}
 
 CHRONIC CONDITIONS:
@@ -830,12 +906,15 @@ ${immunizationsText}
 
 LAST ENCOUNTER:
 ${lastEncounterText}
+${previousDataSection}
 
 IMPORTANT FORMATTING RULES:
 1. If a section shows only a dash (-), it means no data is available - DO NOT mention that section in your summary
 2. Do NOT write phrases like "Not on file", "Never Assessed", "Not documented", "None documented" - simply omit those items
 3. Only include information that is actually present and meaningful
 4. Be concise and focus only on clinically relevant data that exists
+
+${intervalHistoryInstructions}
 
 TASK:
 Create a concise pre-chart note that:
@@ -844,10 +923,12 @@ Create a concise pre-chart note that:
 3. Notes any gaps in care or overdue preventive measures
 4. Suggests potential topics to address during the visit
 5. Flags any concerns or red flags
+6. Includes interval history based on comparison with previous visit (if available)
 
 Return a JSON object:
 {
   "summary": "The pre-chart preparation note (1-2 paragraphs, concise). Only mention items with actual data.",
+  "interval_history": "${intervalHistorySchemaDescription}",
   "key_conditions": ["list", "of", "key", "conditions"],
   "medications_to_review": ["meds", "needing", "attention"],
   "gaps_in_care": ["overdue", "items"],
@@ -863,6 +944,8 @@ Return a JSON object:
       topP: 0.9,
     });
 
+    console.log('[PreChartNote] LLM raw response preview:', result.substring(0, 200));
+
     const parsed = extractJsonFromResponse(result);
     if (parsed) {
       // Build structured summary sections
@@ -871,6 +954,11 @@ Return a JSON object:
       // Main summary paragraph
       if (parsed.summary) {
         summaryParts.push(parsed.summary);
+      }
+
+      // Interval History section (show prominently after main summary)
+      if (parsed.interval_history) {
+        summaryParts.push(`\n\n**INTERVAL HISTORY SINCE LAST VISIT:**\n${parsed.interval_history}`);
       }
 
       // Key Conditions section

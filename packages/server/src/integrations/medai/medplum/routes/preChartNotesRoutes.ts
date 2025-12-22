@@ -55,6 +55,8 @@ preChartNotesRouter.post('/notes/generate', async (req, res): Promise<void> => {
 			return;
 		}
 
+		console.log(`[PreChartRoutes] /notes/generate requested for patient=${patient_id}, reason=${reason_for_visit ?? '(none)'}`);
+
 		// Use the worker function to generate the pre-chart note
 		const result = await generatePreChartNoteForPatient(patient_id, reason_for_visit);
 

@@ -222,8 +222,77 @@ export async function getRepoForPatient(patientId: string) {
  */
 export async function generatePreChartNoteForPatient(patientId: string, appointmentReason?: string): Promise<GeneratedNote> {
   return await requestContextStore.run(AuthenticatedRequestContext.system(), async () => {
+    console.log(`[PreChartWorker] Starting generation for patient=${patientId}, reason=${appointmentReason ?? '(none)'}`);
+
     // Get repository with patient's project context
     const { repo, patient } = await getRepoForPatient(patientId);
+
+    // Fetch the most recent pre-chart note to use for comparison (for interval history)
+    // We need to get the previous note, not the current one being generated
+    let previousPreChartContent: string | null = null;
+    try {
+      // Query without category filter to find ALL pre-chart notes (including older ones
+      // that may have been created before the category field was added)
+      const previousPreChartBundle = await repo.search({
+        resourceType: 'DocumentReference',
+        count: 10, // Fetch more notes to ensure we find one with valid content
+        filters: [
+          { code: 'subject', operator: 'eq', value: `Patient/${patientId}` },
+          { code: 'type', operator: 'eq', value: 'http://loinc.org|11492-6' },
+        ],
+        sortRules: [{ code: 'date', descending: true }],
+      });
+
+      console.log(`[PreChartWorker] Found ${previousPreChartBundle.entry?.length || 0} pre-chart document(s) for patient ${patientId}`);
+
+      // Emit a quick summary of all candidate documents for debugging
+      for (const entry of previousPreChartBundle.entry ?? []) {
+        const doc = entry.resource as DocumentReference;
+        const hasContent = !!doc.extension?.find(
+          (e: any) => e.url === 'http://medplum.com/fhir/StructureDefinition/pre-chart-content'
+        );
+        console.log(`[PreChartWorker] Candidate doc id=${doc.id} date=${doc.date} hasContent=${hasContent}`);
+      }
+
+      if (previousPreChartBundle.entry && previousPreChartBundle.entry.length > 0) {
+        // Iterate through all found notes to find one with valid content
+        // (Skip the first one if it was just created in the current request)
+        for (const entry of previousPreChartBundle.entry) {
+          const previousDoc = entry.resource as DocumentReference;
+          console.log(`[PreChartWorker] Checking document ${previousDoc.id} from ${previousDoc.date}`);
+          
+          const contentExt = previousDoc.extension?.find(
+            (e: any) => e.url === 'http://medplum.com/fhir/StructureDefinition/pre-chart-content'
+          );
+          
+          if (contentExt?.valueString) {
+            // Validate that it's proper JSON content
+            try {
+              const parsed = JSON.parse(contentExt.valueString);
+              if (parsed && typeof parsed === 'object') {
+                previousPreChartContent = contentExt.valueString;
+                console.log(`[PreChartWorker] Found valid previous pre-chart note from ${previousDoc.date}`);
+                console.log(`[PreChartWorker] Previous content length: ${previousPreChartContent.length} chars`);
+                console.log(`[PreChartWorker] Previous content keys: ${Object.keys(parsed).join(', ')}`);
+                break; // Found a valid note, stop searching
+              }
+            } catch (parseErr) {
+              console.warn(`[PreChartWorker] Document ${previousDoc.id} has invalid JSON content, skipping`);
+            }
+          } else {
+            console.log(`[PreChartWorker] Document ${previousDoc.id} has no content extension, skipping`);
+          }
+        }
+        
+        if (!previousPreChartContent) {
+          console.log('[PreChartWorker] No valid pre-chart content found in any of the documents');
+        }
+      } else {
+        console.log('[PreChartWorker] No previous pre-chart notes found - this is the first visit');
+      }
+    } catch (error) {
+      console.warn('[PreChartWorker] Could not fetch previous pre-chart note:', error);
+    }
 
     // Build PreChartContext from Medplum FHIR resources
     const context: PreChartContext = {
@@ -732,7 +801,12 @@ export async function generatePreChartNoteForPatient(patientId: string, appointm
     });
 
     // Generate Pre-Chart note using AI
-    const { summary, model } = await generatePreChartNote(context);
+    const { summary, model, changes } = await generatePreChartNote(context, previousPreChartContent);
+
+    console.log('[PreChartWorker] AI response: summary length', summary?.length || 0, 'changes length', changes?.length || 0);
+    if (changes) {
+      console.log('[PreChartWorker] AI response changes preview:', changes.substring(0, 200));
+    }
 
     console.log(`[PreChartWorker] Generated pre-chart note for patient ${patientId}:`);
     console.log(`[PreChartWorker] Model: ${model}`);
@@ -743,6 +817,34 @@ export async function generatePreChartNoteForPatient(patientId: string, appointm
       console.error(`[PreChartWorker] ERROR: Generated summary is empty for patient ${patientId}`);
       throw new Error(`Failed to generate pre-chart note content for patient ${patientId}`);
     }
+
+    // Extract interval_history from the structured AI response
+    let intervalHistoryText = 'This is the first visit.';
+    if (changes) {
+      try {
+        const parsedChanges = JSON.parse(changes);
+        console.log('[PreChartWorker] Parsed changes keys:', Object.keys(parsedChanges));
+        if (parsedChanges.interval_history) {
+          intervalHistoryText = parsedChanges.interval_history;
+          console.log('[PreChartWorker] Extracted interval history:', intervalHistoryText);
+
+          // Guardrail: if we had previous data but the model still says first visit, override to a neutral message
+          if (previousPreChartContent && intervalHistoryText.trim().toLowerCase().includes('first visit')) {
+            console.warn('[PreChartWorker] Interval history incorrectly marked as first visit despite previous data; overriding');
+            intervalHistoryText = 'No significant changes documented since last visit.';
+          }
+        } else {
+          console.warn('[PreChartWorker] No interval_history field in changes');
+        }
+      } catch (err) {
+        console.warn('[PreChartWorker] Could not parse changes field for interval history:', err);
+        console.warn('[PreChartWorker] Raw changes payload preview:', changes.substring(0, 200));
+      }
+    } else {
+      console.log('[PreChartWorker] No changes field in AI response, using default first visit message');
+    }
+
+    console.log('[PreChartWorker] Final interval history text:', intervalHistoryText);
 
     // Build structured JSON for frontend parsing
     const structuredNote = {
@@ -854,7 +956,7 @@ export async function generatePreChartNoteForPatient(patientId: string, appointm
         },
         family: context.family_history?.text || '',
       },
-      intervalHistory: summary, // Use AI-generated summary as interval history
+      intervalHistory: intervalHistoryText,
       alertsOverdueCareGaps: {
         alerts: [],
         overdueItems: [],
