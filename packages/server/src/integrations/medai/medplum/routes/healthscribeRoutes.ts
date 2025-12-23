@@ -943,12 +943,17 @@ healthscribeRouter.post('/async-transcribe/:jobName', async (req, res): Promise<
 			console.log('Created transcription job, transcriptionId:', transcriptionId);
 
 			// Wait for transcription to complete
-			const maxAttempts = 120;
+			// For 2-hour recordings, Soniox can take 30-60 minutes to process
+			// Poll every 3 seconds for up to 90 minutes (1800 attempts * 3 seconds = 5400 seconds = 90 minutes)
+			const maxAttempts = 1800;
+			const pollIntervalMs = 3000;
 			let attempts = 0;
 			while (attempts < maxAttempts) {
 				const statusResult: any = await sonioxApiFetch(`/v1/transcriptions/${transcriptionId}`);
 				if (statusResult.status === 'completed') {
-					console.log('Transcription completed');
+					const elapsedSeconds = Math.round((attempts * pollIntervalMs) / 1000);
+					const elapsedMinutes = Math.round(elapsedSeconds / 60);
+					console.log(`Transcription completed after ${attempts} attempts (~${elapsedMinutes} minutes)`);
 					break;
 				}
 				if (statusResult.status === 'error') {
@@ -959,7 +964,13 @@ healthscribeRouter.post('/async-transcribe/:jobName', async (req, res): Promise<
 					} catch {}
 					throw new Error(`Transcription failed: ${statusResult.error_message || 'Unknown error'}`);
 				}
-				await new Promise((r) => setTimeout(r, 1000));
+				// Log progress every minute (20 attempts at 3-second intervals)
+				if (attempts > 0 && attempts % 20 === 0) {
+					const elapsedSeconds = Math.round((attempts * pollIntervalMs) / 1000);
+					const elapsedMinutes = Math.round(elapsedSeconds / 60);
+					console.log(`Transcription in progress... status: ${statusResult.status}, elapsed: ${elapsedMinutes} minutes`);
+				}
+				await new Promise((r) => setTimeout(r, pollIntervalMs));
 				attempts++;
 			}
 
@@ -969,7 +980,8 @@ healthscribeRouter.post('/async-transcribe/:jobName', async (req, res): Promise<
 					await sonioxApiFetch(`/v1/transcriptions/${transcriptionId}`, { method: 'DELETE' });
 					await sonioxApiFetch(`/v1/files/${fileId}`, { method: 'DELETE' });
 				} catch {}
-				throw new Error('Transcription timeout');
+				const timeoutMinutes = Math.round((maxAttempts * pollIntervalMs) / 1000 / 60);
+				throw new Error(`Transcription timeout after ${timeoutMinutes} minutes`);
 			}
 
 			// Get the transcript

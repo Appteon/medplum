@@ -559,23 +559,54 @@ export const ScribeColumn = ({
   async function stopRecording() {
     if (!isRecording) return;
 
-    try {
-      mediaRecorder.current?.stop();
-    } catch {}
-    try {
-      stream.current?.getTracks().forEach((t) => t.stop());
-    } catch {}
+    // Stop the timer first
     if (timer.current) {
       clearInterval(timer.current);
       timer.current = null;
     }
+
+    setIsRecording(false);
+    setIsProcessing(true);
+    setLiveTranscript('Finalizing recording...');
+
+    // Wait for the MediaRecorder to finish and capture the final audio chunk
+    // The stop() method is asynchronous - it fires a final 'dataavailable' event
+    // followed by a 'stop' event. We must wait for these before creating the blob.
+    const recorder = mediaRecorder.current;
+    if (recorder && recorder.state !== 'inactive') {
+      await new Promise<void>((resolve) => {
+        const handleStop = () => {
+          recorder.removeEventListener('stop', handleStop);
+          resolve();
+        };
+        recorder.addEventListener('stop', handleStop);
+
+        // Request any pending data before stopping
+        try {
+          recorder.requestData();
+        } catch {}
+
+        // Stop the recorder - this will trigger final dataavailable then stop events
+        try {
+          recorder.stop();
+        } catch {}
+
+        // Safety timeout in case stop event doesn't fire
+        setTimeout(resolve, 1000);
+      });
+    }
+
+    // Now stop the media stream tracks
+    try {
+      stream.current?.getTracks().forEach((t) => t.stop());
+    } catch {}
 
     if (!chunks.current.length) {
       setError('No audio captured');
       try {
         wsRef.current?.close();
       } catch {}
-      setIsRecording(false);
+      setIsProcessing(false);
       return;
     }
 
@@ -592,28 +623,25 @@ export const ScribeColumn = ({
       }
     } catch {}
 
-    setIsRecording(false);
-    setIsProcessing(true);
-
-    if (captured) {
+    if (captured && !captured.startsWith('Finalizing')) {
       setLiveTranscript('Recording complete. Full transcript:\n\n' + captured);
     } else {
       setLiveTranscript('Recording complete. Processing...');
     }
 
-    const mimeType = mediaRecorder.current?.mimeType || 'audio/webm';
+    const mimeType = recorder?.mimeType || 'audio/webm';
     const blob = new Blob(chunks.current, { type: mimeType });
     const blobSizeMB = (blob.size / (1024 * 1024)).toFixed(2);
     console.log(`Preparing to upload audio: ${blobSizeMB} MB, duration: ${duration}s`);
 
     try {
-      await uploadAndStart(blob, mimeType, captured);
+      await uploadAndStart(blob, mimeType);
     } finally {
       setIsProcessing(false);
     }
   }
 
-  async function uploadAndStart(file: Blob, contentType: string, _realTimeTranscript: string = '') {
+  async function uploadAndStart(file: Blob, contentType: string) {
     if (!patientId) return;
 
     try {
@@ -670,14 +698,24 @@ export const ScribeColumn = ({
       const jobName = uploadResult.jobName;
       const mediaId = uploadResult.mediaId;
 
-      const started = await authenticatedFetch(START_JOB, {
+      setLiveTranscript('Creating job record...');
+
+      const startJobResponse = await authenticatedFetch(START_JOB, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ jobName, patientId, mediaId, appointmentId: null }),
-      }).then((r) => r.json());
+      }).catch((e) => {
+        throw new Error(`Failed to create job record: ${e.message}`);
+      });
 
+      if (!startJobResponse.ok) {
+        const errorText = await startJobResponse.text();
+        throw new Error(`Failed to create job record (${startJobResponse.status}): ${errorText}`);
+      }
+
+      const started = await startJobResponse.json();
       if (!started?.ok) {
-        console.warn('Failed to create job record:', started?.error);
+        console.warn('Job creation returned error:', started?.error);
       }
 
       // Use Soniox async API to get accurate transcript instead of real-time transcript
@@ -688,30 +726,35 @@ export const ScribeColumn = ({
         const asyncResp = await authenticatedFetch(`${ASYNC_TRANSCRIBE_URL}/${encodeURIComponent(jobName)}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+        }).catch((e) => {
+          console.error('Network error calling async transcription:', e);
+          throw new Error(`Network error during transcription: ${e.message}`);
         });
 
-        if (asyncResp.ok) {
-          const asyncResult = await asyncResp.json();
-          if (asyncResult.ok && asyncResult.transcript) {
-            asyncTranscript = asyncResult.transcript;
-            console.log('✅ Async transcription successful!');
-            console.log('  - Transcript length:', asyncTranscript.length, 'characters');
-            console.log('  - Token count:', asyncResult.tokenCount);
-            console.log('  - Segments:', asyncResult.segments?.length || 0);
-            console.log('  - Full async transcript:', asyncTranscript);
-            setLiveTranscript('Async transcription complete.\n\n' + asyncTranscript);
-          } else {
-            console.warn('Async transcription returned empty result');
-            setLiveTranscript('Async transcription returned no text. Proceeding without transcript.');
-          }
-        } else {
+        if (!asyncResp.ok) {
           const errorText = await asyncResp.text();
-          console.error('Async transcription failed:', errorText);
-          setLiveTranscript('Async transcription failed. Proceeding without transcript.');
+          console.error('Async transcription failed:', asyncResp.status, errorText);
+          throw new Error(`Async transcription failed (${asyncResp.status}): ${errorText}`);
+        }
+
+        const asyncResult = await asyncResp.json();
+        if (asyncResult.ok && asyncResult.transcript) {
+          asyncTranscript = asyncResult.transcript;
+          console.log('✅ Async transcription successful!');
+          console.log('  - Transcript length:', asyncTranscript.length, 'characters');
+          console.log('  - Token count:', asyncResult.tokenCount);
+          console.log('  - Segments:', asyncResult.segments?.length || 0);
+          console.log('  - Full async transcript:', asyncTranscript);
+          setLiveTranscript('Async transcription complete.\n\n' + asyncTranscript);
+        } else {
+          console.warn('Async transcription returned empty result:', asyncResult);
+          const warningMsg = asyncResult.error || 'No transcript returned';
+          setLiveTranscript(`Async transcription returned no text: ${warningMsg}. Proceeding without transcript.`);
         }
       } catch (asyncErr: any) {
         console.error('Async transcription error:', asyncErr);
-        setLiveTranscript('Async transcription error. Proceeding without transcript.');
+        setLiveTranscript(`Async transcription error: ${asyncErr.message}. Proceeding without transcript.`);
+        // Note: We don't re-throw here to allow the flow to continue without transcript
       }
 
       // Warn if we don't have an async transcript
@@ -739,63 +782,72 @@ export const ScribeColumn = ({
               transcript_text: asyncTranscript,
               appointment_id: null,
             }),
+          }).catch((e) => {
+            throw new Error(`Network error generating scribe notes: ${e.message}`);
           });
 
-          if (scribeResp.ok) {
-            const scribeResult = await scribeResp.json();
-            setLiveTranscript((prev) => prev + '\n✅ AI scribe notes generated successfully!');
-
-            window.dispatchEvent(
-              new CustomEvent('scribe-notes-generated', {
-                detail: {
-                  patientId,
-                  jobName,
-                  scribeNotes: scribeResult.scribe_notes,
-                },
-              }),
-            );
-
-            if (onScribeComplete) {
-              onScribeComplete(scribeResult);
-            }
-
-            // Use async transcript for synthesis generation as well
-            const synthPromise = onGenerateSynthesis
-              ? onGenerateSynthesis(asyncTranscript, jobName).catch((e) => {
-                  console.error('Error generating synthesis notes:', e);
-                })
-              : null;
-
-            try {
-              if (synthPromise) await synthPromise;
-            } catch (e) {
-              // already logged
-            }
-
-            setTimeout(async () => {
-              try {
-                const url = `${httpBase}/api/medai/medplum/healthscribe/scribe-notes/${encodeURIComponent(
-                  patientId,
-                )}`;
-                const response = await fetch(url, { credentials: 'include' });
-
-                if (response.ok) {
-                  const result = await response.json();
-                  if (result.ok && Array.isArray(result.notes) && result.notes.length > 0) {
-                    const entries = result.notes.map((note: ScribeNote) => parseScribeNote(note));
-                    setCurrentSummary(entries[0]);
-                    setScribeHistory(entries.slice(1));
-                    setLiveTranscript('');
-                  }
-                }
-              } catch (e) {
-                console.error('Error refreshing after generation:', e);
-              }
-            }, 2000);
+          if (!scribeResp.ok) {
+            const errorText = await scribeResp.text();
+            throw new Error(`Scribe generation failed (${scribeResp.status}): ${errorText}`);
           }
-        } catch (e) {
+
+          const scribeResult = await scribeResp.json();
+          if (!scribeResult.ok) {
+            throw new Error(scribeResult.error || 'Scribe generation returned error');
+          }
+
+          setLiveTranscript((prev) => prev + '\n✅ AI scribe notes generated successfully!');
+
+          window.dispatchEvent(
+            new CustomEvent('scribe-notes-generated', {
+              detail: {
+                patientId,
+                jobName,
+                scribeNotes: scribeResult.scribe_notes,
+              },
+            }),
+          );
+
+          if (onScribeComplete) {
+            onScribeComplete(scribeResult);
+          }
+
+          // Use async transcript for synthesis generation as well
+          const synthPromise = onGenerateSynthesis
+            ? onGenerateSynthesis(asyncTranscript, jobName).catch((e) => {
+                console.error('Error generating synthesis notes:', e);
+              })
+            : null;
+
+          try {
+            if (synthPromise) await synthPromise;
+          } catch (e) {
+            // already logged
+          }
+
+          setTimeout(async () => {
+            try {
+              const url = `${httpBase}/api/medai/medplum/healthscribe/scribe-notes/${encodeURIComponent(
+                patientId,
+              )}`;
+              const response = await fetch(url, { credentials: 'include' });
+
+              if (response.ok) {
+                const result = await response.json();
+                if (result.ok && Array.isArray(result.notes) && result.notes.length > 0) {
+                  const entries = result.notes.map((note: ScribeNote) => parseScribeNote(note));
+                  setCurrentSummary(entries[0]);
+                  setScribeHistory(entries.slice(1));
+                  setLiveTranscript('');
+                }
+              }
+            } catch (e) {
+              console.error('Error refreshing after generation:', e);
+            }
+          }, 2000);
+        } catch (e: any) {
           console.error('Error generating scribe notes:', e);
-          setLiveTranscript((prev) => prev + '\n❌ Error generating AI scribe notes');
+          setLiveTranscript((prev) => prev + `\n❌ Error generating AI scribe notes: ${e.message}`);
         }
       }
     } catch (e: any) {

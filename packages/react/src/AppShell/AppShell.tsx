@@ -54,6 +54,8 @@ export function AppShell(props: AppShellProps): JSX.Element {
     return <Loading />;
   }
 
+  const isRootPath = props.pathname === '/' || props.pathname === '';
+
   let headerProp: AppShellHeaderConfiguration | undefined;
   let navbarProp: AppShellNavbarConfiguration | undefined;
   let headerComponent: ReactNode | undefined;
@@ -68,12 +70,12 @@ export function AppShell(props: AppShellProps): JSX.Element {
       width: navbarOpen ? OPEN_WIDTH : CLOSED_WIDTH,
       breakpoint: 0,
       collapsed: {
-        desktop: !profile,
-        mobile: !profile,
+        desktop: !profile || isRootPath,
+        mobile: !profile || isRootPath,
       },
     };
     headerComponent = undefined;
-    navbarComponent = profile ? (
+    navbarComponent = profile && !isRootPath ? (
       <Navbar
         logo={props.logo}
         pathname={props.pathname}
@@ -96,8 +98,8 @@ export function AppShell(props: AppShellProps): JSX.Element {
       width: OPEN_WIDTH,
       breakpoint: 'sm',
       collapsed: {
-        desktop: !profile || !navbarOpen,
-        mobile: !profile || !navbarOpen,
+        desktop: !profile || !navbarOpen || isRootPath,
+        mobile: !profile || !navbarOpen || isRootPath,
       },
     };
     headerComponent = profile && (
@@ -113,7 +115,7 @@ export function AppShell(props: AppShellProps): JSX.Element {
       />
     );
     navbarComponent =
-      profile && navbarOpen ? (
+      profile && navbarOpen && !isRootPath ? (
         <Navbar
           pathname={props.pathname}
           searchParams={props.searchParams}

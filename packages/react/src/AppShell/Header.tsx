@@ -35,7 +35,7 @@ export function Header(props: HeaderProps): JSX.Element {
           <img
             src="/img/AppteonLogo.png"
             alt="Appteon Logo"
-            style={{ height: '40px', width: 'auto', display: 'block' }}
+            style={{ height: '40px', width: 'auto', display: 'block', marginLeft: '16px' }}
           />
         ) : (
           <UnstyledButton
