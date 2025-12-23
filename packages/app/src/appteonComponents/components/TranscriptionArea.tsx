@@ -35,7 +35,7 @@ export const TranscriptionArea = ({ isRecording, transcript }: TranscriptionArea
       "border border-border shadow-inner"
     )}>
       {displayText ? (
-        <div className="p-4 space-y-3">
+        <div className="p-4 space-y-3 flex flex-col-reverse">
           {parsedLines.map((line, idx) => {
             const isDoctor = line.speaker === 'Doctor' || line.speaker === 'SPEAKER_1';
             const isPatient = line.speaker === 'Patient' || line.speaker === 'SPEAKER_2';

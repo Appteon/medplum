@@ -25,6 +25,7 @@ type TranscriptSegment = {
 const httpBase = `${process.env.MEDPLUM_BASE_URL || ''}`;
 const UPLOAD_AUDIO_URL = `${httpBase}/api/medai/medplum/healthscribe/upload-audio`;
 const START_JOB = `${httpBase}/api/medai/medplum/healthscribe/batch/start`;
+const ASYNC_TRANSCRIBE_URL = `${httpBase}/api/medai/medplum/healthscribe/async-transcribe`;
 
 const getWebSocketUrl = () => {
   if (typeof window === 'undefined') return 'wss://healthai.appteon.ai/ws/soniox';
@@ -612,7 +613,7 @@ export const ScribeColumn = ({
     }
   }
 
-  async function uploadAndStart(file: Blob, contentType: string, transcriptText: string = '') {
+  async function uploadAndStart(file: Blob, contentType: string, _realTimeTranscript: string = '') {
     if (!patientId) return;
 
     try {
@@ -636,6 +637,8 @@ export const ScribeColumn = ({
       if (duration !== null) {
         uploadHeaders['X-Audio-Duration'] = duration.toString();
       }
+
+      setLiveTranscript('Uploading audio...');
 
       const uploadResponse = await authenticatedFetch(UPLOAD_AUDIO_URL, {
         method: 'POST',
@@ -677,7 +680,52 @@ export const ScribeColumn = ({
         console.warn('Failed to create job record:', started?.error);
       }
 
-      if (transcriptText && transcriptText.trim()) {
+      // Use Soniox async API to get accurate transcript instead of real-time transcript
+      setLiveTranscript('Processing audio with Soniox async transcription...');
+
+      let asyncTranscript = '';
+      try {
+        const asyncResp = await authenticatedFetch(`${ASYNC_TRANSCRIBE_URL}/${encodeURIComponent(jobName)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        });
+
+        if (asyncResp.ok) {
+          const asyncResult = await asyncResp.json();
+          if (asyncResult.ok && asyncResult.transcript) {
+            asyncTranscript = asyncResult.transcript;
+            console.log('✅ Async transcription successful!');
+            console.log('  - Transcript length:', asyncTranscript.length, 'characters');
+            console.log('  - Token count:', asyncResult.tokenCount);
+            console.log('  - Segments:', asyncResult.segments?.length || 0);
+            console.log('  - Full async transcript:', asyncTranscript);
+            setLiveTranscript('Async transcription complete.\n\n' + asyncTranscript);
+          } else {
+            console.warn('Async transcription returned empty result');
+            setLiveTranscript('Async transcription returned no text. Proceeding without transcript.');
+          }
+        } else {
+          const errorText = await asyncResp.text();
+          console.error('Async transcription failed:', errorText);
+          setLiveTranscript('Async transcription failed. Proceeding without transcript.');
+        }
+      } catch (asyncErr: any) {
+        console.error('Async transcription error:', asyncErr);
+        setLiveTranscript('Async transcription error. Proceeding without transcript.');
+      }
+
+      // Warn if we don't have an async transcript
+      if (!asyncTranscript || !asyncTranscript.trim()) {
+        console.warn('⚠️ No async transcript available - scribe notes will not be generated');
+        console.warn('  - This means the audio was uploaded but async transcription failed or returned empty');
+        setLiveTranscript((prev) => prev + '\n\n⚠️ Async transcription failed. No scribe notes will be generated.');
+      }
+
+      // Use async transcript for scribe and synthesis generation
+      if (asyncTranscript && asyncTranscript.trim()) {
+        console.log('📝 Generating scribe notes with async transcript');
+        console.log('  - Using transcript length:', asyncTranscript.length, 'characters');
+
         try {
           const SCRIBE_URL = `${httpBase}/api/medai/medplum/healthscribe/scribe/generate`;
           setLiveTranscript((prev) => prev + '\n\nGenerating AI scribe notes...');
@@ -688,7 +736,7 @@ export const ScribeColumn = ({
             body: JSON.stringify({
               patient_id: patientId,
               job_name: jobName,
-              transcript_text: transcriptText,
+              transcript_text: asyncTranscript,
               appointment_id: null,
             }),
           });
@@ -711,8 +759,9 @@ export const ScribeColumn = ({
               onScribeComplete(scribeResult);
             }
 
+            // Use async transcript for synthesis generation as well
             const synthPromise = onGenerateSynthesis
-              ? onGenerateSynthesis(transcriptText, jobName).catch((e) => {
+              ? onGenerateSynthesis(asyncTranscript, jobName).catch((e) => {
                   console.error('Error generating synthesis notes:', e);
                 })
               : null;

@@ -2,6 +2,7 @@
 import { Router } from 'express';
 import { randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
+import { spawn } from 'node:child_process';
 import { AuthenticatedRequestContext } from '../../../../context.js';
 import { requestContextStore } from '../../../../request-context-store.js';
 import type { DocumentReference, Media } from '@medplum/fhirtypes';
@@ -10,6 +11,47 @@ import { getSystemRepo } from '../../../../fhir/repo.js';
 import { generateAIScribeNotes } from '../../ai/index.js';
 import { getBinaryStorage } from '../../../../storage/loader.js';
 import { getRepoForPatient } from '../services/preChartWorker.js';
+
+// Convert webm audio to wav format using ffmpeg
+async function convertWebmToWav(inputBuffer: Buffer): Promise<Buffer> {
+	return new Promise((resolve, reject) => {
+		const ffmpeg = spawn('ffmpeg', [
+			'-i', 'pipe:0',           // Read from stdin
+			'-f', 'wav',              // Output format
+			'-acodec', 'pcm_s16le',   // PCM 16-bit little-endian
+			'-ar', '16000',           // 16kHz sample rate (good for speech)
+			'-ac', '1',               // Mono
+			'pipe:1'                  // Write to stdout
+		]);
+
+		const outputChunks: Buffer[] = [];
+		let errorOutput = '';
+
+		ffmpeg.stdout.on('data', (chunk) => {
+			outputChunks.push(chunk);
+		});
+
+		ffmpeg.stderr.on('data', (chunk) => {
+			errorOutput += chunk.toString();
+		});
+
+		ffmpeg.on('close', (code) => {
+			if (code === 0) {
+				resolve(Buffer.concat(outputChunks));
+			} else {
+				reject(new Error(`ffmpeg exited with code ${code}: ${errorOutput}`));
+			}
+		});
+
+		ffmpeg.on('error', (err) => {
+			reject(new Error(`ffmpeg spawn error: ${err.message}`));
+		});
+
+		// Write input buffer to ffmpeg stdin
+		ffmpeg.stdin.write(inputBuffer);
+		ffmpeg.stdin.end();
+	});
+}
 
 export const healthscribeRouter = Router();
 
@@ -600,6 +642,272 @@ healthscribeRouter.get('/scribe-notes/:patientId', async (req, res): Promise<voi
 		res.status(200).json({ ok: true, notes: result });
 		return;
 	} catch (err: any) {
+		res.status(500).json({ ok: false, error: err?.message ?? 'Server error' });
+		return;
+	}
+});
+
+// Async transcription: transcribes audio from Binary storage using Soniox async API
+healthscribeRouter.post('/async-transcribe/:jobName', async (req, res): Promise<void> => {
+	try {
+		const { jobName } = req.params;
+
+		if (!jobName) {
+			res.status(400).json({ ok: false, error: 'jobName is required' });
+			return;
+		}
+
+		console.log('Starting async transcription for jobName:', jobName);
+
+		const result = await requestContextStore.run(AuthenticatedRequestContext.system(), async () => {
+			const repo = getSystemRepo();
+			const storage = getBinaryStorage();
+
+			// Small delay to ensure Media resource is indexed and searchable
+			await new Promise((r) => setTimeout(r, 500));
+
+			// Find the Media resource to get the Binary reference
+			let mediaSearch = await repo.search({
+				resourceType: 'Media',
+				filters: [
+					{
+						code: 'identifier',
+						operator: 'eq',
+						value: `http://medplum.com/fhir/healthscribe-job|${jobName}`,
+					},
+				],
+			});
+
+			// Retry once if not found (race condition)
+			if (!mediaSearch.entry?.[0]) {
+				console.log('Media not found on first try, retrying after 1s...');
+				await new Promise((r) => setTimeout(r, 1000));
+				mediaSearch = await repo.search({
+					resourceType: 'Media',
+					filters: [
+						{
+							code: 'identifier',
+							operator: 'eq',
+							value: `http://medplum.com/fhir/healthscribe-job|${jobName}`,
+						},
+					],
+				});
+			}
+
+			if (!mediaSearch.entry?.[0]) {
+				throw new Error('Media resource not found for jobName: ' + jobName);
+			}
+
+			const media = mediaSearch.entry[0].resource as Media;
+			const binaryUrl = media.content?.url;
+			if (!binaryUrl) {
+				throw new Error('Media resource has no content URL');
+			}
+
+			const binaryId = binaryUrl.replace('Binary/', '');
+			const binary = await repo.readResource<Binary>('Binary', binaryId);
+
+			// Read the audio data from binary storage
+			const audioStream = await storage.readBinary(binary);
+			const chunks: Buffer[] = [];
+			for await (const chunk of audioStream) {
+				chunks.push(Buffer.from(chunk));
+			}
+			const audioBuffer = Buffer.concat(chunks);
+
+			console.log('Read audio from storage, size:', audioBuffer.length, 'bytes');
+
+			// Try to convert webm to wav format for Soniox async API compatibility
+			// If ffmpeg is not available, attempt to send webm directly
+			let processedBuffer: Buffer = audioBuffer;
+			let processedFilename = `${jobName}.webm`;
+			let processedContentType = 'audio/webm';
+
+			try {
+				console.log('Attempting audio conversion from webm to wav...');
+				processedBuffer = await convertWebmToWav(audioBuffer);
+				processedFilename = `${jobName}.wav`;
+				processedContentType = 'audio/wav';
+				console.log('Audio converted to wav, size:', processedBuffer.length, 'bytes');
+			} catch (convErr: any) {
+				console.warn('Audio conversion failed, will try sending webm directly:', convErr.message);
+				// Fall back to original webm buffer
+				processedBuffer = audioBuffer;
+				processedFilename = `${jobName}.webm`;
+				processedContentType = 'audio/webm';
+			}
+
+			// Call Soniox async API
+			const SONIOX_API_KEY = process.env.SONIOX_API_KEY || '';
+			const SONIOX_API_BASE_URL = 'https://api.soniox.com';
+
+			if (!SONIOX_API_KEY) {
+				throw new Error('SONIOX_API_KEY is not configured');
+			}
+
+			// Helper function for Soniox API calls
+			const sonioxApiFetch = async (
+				endpoint: string,
+				options: { method?: string; body?: any; headers?: Record<string, string> } = {}
+			) => {
+				const { method = 'GET', body, headers = {} } = options;
+				const fetchRes = await fetch(`${SONIOX_API_BASE_URL}${endpoint}`, {
+					method,
+					headers: {
+						Authorization: `Bearer ${SONIOX_API_KEY}`,
+						...headers,
+					},
+					body,
+				} as any);
+
+				if (!fetchRes.ok) {
+					const errorText = await fetchRes.text();
+					throw new Error(`Soniox API error ${fetchRes.status}: ${errorText}`);
+				}
+				return method !== 'DELETE' ? fetchRes.json() : null;
+			};
+
+			// Upload processed audio to Soniox
+			const form = new FormData();
+			const blob = new Blob([new Uint8Array(processedBuffer)], { type: processedContentType });
+			form.append('file', blob, processedFilename);
+			const uploadResult: any = await sonioxApiFetch('/v1/files', { method: 'POST', body: form as any });
+			const fileId = uploadResult.id as string;
+
+			console.log('Uploaded audio to Soniox, fileId:', fileId);
+
+			// Create transcription job
+			const config = {
+				model: 'stt-async-v3',
+				language_hints: ['en'],
+				enable_speaker_diarization: true,
+				context: {
+					general: [
+						{ key: 'domain', value: 'Healthcare' },
+						{ key: 'topic', value: 'Medical consultation' },
+					],
+					text: 'Medical consultation between healthcare provider and patient discussing symptoms, diagnosis, treatment, medications, and follow-up care.',
+				},
+				file_id: fileId,
+			};
+			const createResult: any = await sonioxApiFetch('/v1/transcriptions', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(config),
+			});
+			const transcriptionId = createResult.id as string;
+
+			console.log('Created transcription job, transcriptionId:', transcriptionId);
+
+			// Wait for transcription to complete
+			const maxAttempts = 120;
+			let attempts = 0;
+			while (attempts < maxAttempts) {
+				const statusResult: any = await sonioxApiFetch(`/v1/transcriptions/${transcriptionId}`);
+				if (statusResult.status === 'completed') {
+					console.log('Transcription completed');
+					break;
+				}
+				if (statusResult.status === 'error') {
+					// Cleanup on error
+					try {
+						await sonioxApiFetch(`/v1/transcriptions/${transcriptionId}`, { method: 'DELETE' });
+						await sonioxApiFetch(`/v1/files/${fileId}`, { method: 'DELETE' });
+					} catch {}
+					throw new Error(`Transcription failed: ${statusResult.error_message || 'Unknown error'}`);
+				}
+				await new Promise((r) => setTimeout(r, 1000));
+				attempts++;
+			}
+
+			if (attempts >= maxAttempts) {
+				// Cleanup on timeout
+				try {
+					await sonioxApiFetch(`/v1/transcriptions/${transcriptionId}`, { method: 'DELETE' });
+					await sonioxApiFetch(`/v1/files/${fileId}`, { method: 'DELETE' });
+				} catch {}
+				throw new Error('Transcription timeout');
+			}
+
+			// Get the transcript
+			const transcriptResult: any = await sonioxApiFetch(`/v1/transcriptions/${transcriptionId}/transcript`);
+
+			// Cleanup Soniox resources
+			try {
+				await sonioxApiFetch(`/v1/transcriptions/${transcriptionId}`, { method: 'DELETE' });
+				await sonioxApiFetch(`/v1/files/${fileId}`, { method: 'DELETE' });
+			} catch {}
+
+			// Process tokens into segments
+			const tokens = Array.isArray(transcriptResult?.tokens) ? transcriptResult.tokens : [];
+			if (tokens.length === 0) {
+				return { transcript: '', segments: [], tokenCount: 0 };
+			}
+
+			// Group tokens by speaker
+			interface TranscriptSegment {
+				start: number;
+				end: number;
+				speaker: string;
+				text: string;
+			}
+
+			const segments: TranscriptSegment[] = [];
+			let currentSpeaker: string | null = null;
+			let currentText = '';
+			let currentStart = 0;
+			let currentEnd = 0;
+
+			for (const token of tokens) {
+				const { text, speaker, start_ms, duration_ms } = token;
+				if (!text) continue;
+				// Soniox uses 1-indexed speakers (1, 2, 3...), not 0-indexed
+				const tokenSpeaker = speaker !== undefined ? String(speaker) : '0';
+				const tokenStart = (start_ms || 0) / 1000;
+				const tokenDuration = (duration_ms || 0) / 1000;
+				const tokenEnd = tokenStart + tokenDuration;
+
+				if (currentSpeaker === null) {
+					currentSpeaker = tokenSpeaker;
+					currentText = text;
+					currentStart = tokenStart;
+					currentEnd = tokenEnd;
+				} else if (tokenSpeaker === currentSpeaker) {
+					currentText += text;
+					currentEnd = tokenEnd;
+				} else {
+					if (currentText.trim()) {
+						segments.push({ start: currentStart, end: currentEnd, speaker: currentSpeaker, text: currentText.trim() });
+					}
+					currentSpeaker = tokenSpeaker;
+					currentText = text;
+					currentStart = tokenStart;
+					currentEnd = tokenEnd;
+				}
+			}
+
+			if (currentText.trim() && currentSpeaker !== null) {
+				segments.push({ start: currentStart, end: currentEnd, speaker: currentSpeaker, text: currentText.trim() });
+			}
+
+			// Convert segments to text
+			// Match the same speaker labeling as real-time WebSocket: speaker 1 = Doctor, speaker 2 = Patient
+			const transcriptText = segments
+				.map((seg) => {
+					const speakerLabel = seg.speaker === '1' ? 'Doctor' : seg.speaker === '2' ? 'Patient' : `Speaker ${seg.speaker}`;
+					return `[${speakerLabel}] ${seg.text}`;
+				})
+				.join('\n\n');
+
+			console.log('Async transcription complete, segments:', segments.length, 'text length:', transcriptText.length);
+
+			return { transcript: transcriptText, segments, tokenCount: tokens.length };
+		});
+
+		res.status(200).json({ ok: true, ...result });
+		return;
+	} catch (err: any) {
+		console.error('Async transcription error:', err);
 		res.status(500).json({ ok: false, error: err?.message ?? 'Server error' });
 		return;
 	}

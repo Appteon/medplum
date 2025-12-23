@@ -23,8 +23,11 @@ WORKDIR /usr/src/medplum
 # See: https://docs.docker.com/reference/dockerfile/#adding-local-tar-archives
 ADD ./medplum-server.tar.gz ./
 
-# Install dependencies, create non-root user, and set permissions in one layer
-RUN npm ci && \
+# Install system dependencies (ffmpeg for audio conversion), npm dependencies, create non-root user, and set permissions in one layer
+RUN apt-get update && \
+  apt-get install -y --no-install-recommends ffmpeg && \
+  rm -rf /var/lib/apt/lists/* && \
+  npm ci && \
   rm package-lock.json && \
   groupadd -r medplum && \
   useradd -r -g medplum medplum && \
