@@ -82,7 +82,7 @@ export interface MedplumRefreshTokenClaims extends MedplumBaseClaims {
 
 const PREFERRED_ALG = OAuthSigningAlgorithm.ES256;
 const LEGACY_DEFAULT_ALG = OAuthSigningAlgorithm.RS256;
-const DEFAULT_ACCESS_LIFETIME = '1h';
+const DEFAULT_ACCESS_LIFETIME = '12h';
 const DEFAULT_REFRESH_LIFETIME = '2w';
 
 let issuer: string | undefined;
