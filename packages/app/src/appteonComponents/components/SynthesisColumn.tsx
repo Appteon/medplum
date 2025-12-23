@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 // DropdownNote component for previous notes
 interface DropdownNoteProps {
@@ -591,6 +591,8 @@ export const SynthesisColumn = ({
   const [editCache, setEditCache] = useState<Record<string, any>>({});
   const [expandedObjectiveLabs, setExpandedObjectiveLabs] = useState<Set<string>>(new Set());
 
+  const [lastTranscriptSummary, setLastTranscriptSummary] = useState<{ date?: string; summary: string; provider?: string } | null>(null);
+
   const toggleObjectiveLabExpansion = (labName: string) => {
     setExpandedObjectiveLabs(prev => {
       const next = new Set(prev);
@@ -1086,28 +1088,46 @@ export const SynthesisColumn = ({
   const parsedData = parseNoteData(currentNote?.content);
   const preChartData = parsePreChartData(currentNote?.content);
 
-  // Find most-recent transcript/summary from history (fallback for last encounter)
-  const getLastTranscriptSummary = () => {
-    const combined = [ ...(smartHistory || []), ...(preChartHistory || []) ]
-      .filter(n => n && n.content)
-      .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+  // Fetch most-recent transcript summary for this patient (transcript-only)
+  useEffect(() => {
+    const controller = new AbortController();
 
-    for (const n of combined) {
-      const content = n!.content!;
-      try {
-        const p = JSON.parse(content);
-        if (p.lastEncounterSummary && p.lastEncounterSummary.summary) {
-          return { date: n!.created_at, summary: p.lastEncounterSummary.summary, provider: p.lastEncounterSummary.provider };
-        }
-        if (p.summary && typeof p.summary === 'string' && p.summary.trim().length > 0) {
-          return { date: n!.created_at, summary: p.summary, provider: p.provider || undefined };
-        }
-      } catch {
-        // ignore non-JSON or transcript-only notes; avoid showing raw transcripts
-      }
+    if (!patientId) {
+      setLastTranscriptSummary(null);
+      return () => controller.abort();
     }
-    return null;
-  };
+
+    (async () => {
+      try {
+        const res = await fetch(`/api/medai/medplum/healthscribe/last-transcript-summary/${patientId}`, {
+          signal: controller.signal,
+        });
+        if (!res.ok) {
+          setLastTranscriptSummary(null);
+          return;
+        }
+        const json = (await res.json()) as any;
+        if (json?.ok && json?.lastTranscriptSummary?.summary) {
+          setLastTranscriptSummary({
+            date: json.lastTranscriptSummary.date,
+            summary: json.lastTranscriptSummary.summary,
+            provider: json.lastTranscriptSummary.provider,
+          });
+        } else {
+          setLastTranscriptSummary(null);
+        }
+      } catch (err: any) {
+        if (err?.name === 'AbortError') {
+          return;
+        }
+        setLastTranscriptSummary(null);
+      }
+    })();
+
+    return () => controller.abort();
+  }, [patientId]);
+
+  const getLastTranscriptSummary = () => lastTranscriptSummary;
 
   if (!patientId) {
     return (

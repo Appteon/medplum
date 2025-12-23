@@ -742,12 +742,35 @@ export async function generatePreChartNote(
       console.log('[PreChartNote] Successfully parsed previous pre-chart data');
       console.log('[PreChartNote] Previous data keys:', Object.keys(previousData));
       console.log('[PreChartNote] Previous data preview:', previousPreChartContent.substring(0, 200));
+
+      // Log key fields for comparison
+      if (previousData.allergiesIntolerances) {
+        console.log('[PreChartNote] Previous allergies count:', previousData.allergiesIntolerances.length);
+        console.log('[PreChartNote] Previous allergies:', previousData.allergiesIntolerances.map((a: any) => a.allergen).join(', '));
+      }
+      if (previousData.vitalSignsTrends) {
+        console.log('[PreChartNote] Previous vitals count:', previousData.vitalSignsTrends.length);
+        if (previousData.vitalSignsTrends.length > 0) {
+          const latest = previousData.vitalSignsTrends[0];
+          console.log('[PreChartNote] Latest previous vitals:', JSON.stringify(latest));
+        }
+      }
     } catch (err) {
       console.warn('[PreChartNote] Could not parse previous pre-chart content:', err);
       console.warn('[PreChartNote] Content preview:', previousPreChartContent?.substring(0, 200));
     }
   } else {
     console.log('[PreChartNote] No previous pre-chart content provided - this is the first visit');
+  }
+
+  // Log current data for comparison
+  console.log('[PreChartNote] Current allergies count:', context.allergies?.length || 0);
+  if (context.allergies && context.allergies.length > 0) {
+    console.log('[PreChartNote] Current allergies:', context.allergies.map((a) => a.allergen).join(', '));
+  }
+  console.log('[PreChartNote] Current vitals count:', context.vitals?.length || 0);
+  if (context.vitals && context.vitals.length > 0) {
+    console.log('[PreChartNote] Current vitals sample:', context.vitals.slice(0, 3).map((v) => `${v.type}: ${v.value}`).join(', '));
   }
 
   const demographicsText = `
@@ -781,16 +804,65 @@ Reason for Visit: ${context.reason_for_visit || 'Not specified'}
           .join('\n')
       : 'None documented';
 
+  // Build allergies text with count for comparison
+  const currentAllergyCount = context.allergies?.length || 0;
   const allergiesText =
-    context.allergies.length > 0
-      ? context.allergies.map((a) => `- ${a.allergen}: ${a.reaction || 'reaction unknown'} (${a.severity || ''})`).join('\n')
+    currentAllergyCount > 0
+      ? `Total: ${currentAllergyCount}\n` + context.allergies.map((a) => `- ${a.allergen}: ${a.reaction || 'reaction unknown'} (${a.severity || ''})`).join('\n')
       : '-';
 
+  // Group vitals by date for easier comparison with previous visit format
+  const vitalsGroupedByDate = new Map<string, any>();
+  context.vitals.forEach((v) => {
+    const date = safeDate(v.recorded_at);
+    if (!vitalsGroupedByDate.has(date)) {
+      vitalsGroupedByDate.set(date, { date, readings: [], rawDate: v.recorded_at });
+    }
+    vitalsGroupedByDate.get(date)!.readings.push(v);
+  });
+
+  // Sort by date descending (most recent first)
+  const sortedVitals = Array.from(vitalsGroupedByDate.values()).sort((a, b) => {
+    const dateA = new Date(a.rawDate || a.date).getTime();
+    const dateB = new Date(b.rawDate || b.date).getTime();
+    return dateB - dateA;
+  });
+
   const vitalsText =
-    context.vitals.length > 0
-      ? context.vitals
-          .slice(0, 5)
-          .map((v) => `- ${v.type}: ${v.value} ${v.unit || ''} (${safeDate(v.recorded_at)})`)
+    sortedVitals.length > 0
+      ? sortedVitals
+          .slice(0, 3) // Show up to 3 most recent dates
+          .map((group, index) => {
+            const readings: any = {};
+            group.readings.forEach((v: any) => {
+              const type = v.type.toLowerCase();
+              if (type.includes('systolic')) readings.systolic = v.value;
+              else if (type.includes('diastolic')) readings.diastolic = v.value;
+              else if (type.includes('blood pressure')) readings.bp = v.value;
+              else if (type.includes('heart rate') || type.includes('pulse')) readings.hr = v.value;
+              else if (type.includes('temperature')) readings.temp = v.value;
+              else if (type.includes('weight')) readings.weight = v.value;
+              else if (type.includes('respiratory rate') || type.includes('respiration')) readings.rr = v.value;
+              else if (type.includes('oxygen') || type.includes('spo2')) readings.spo2 = v.value;
+            });
+
+            // Format BP from systolic/diastolic if available
+            if (readings.systolic && readings.diastolic) {
+              readings.bp = `${readings.systolic}/${readings.diastolic}`;
+            }
+
+            const parts = [];
+            if (readings.bp) parts.push(`BP: ${readings.bp}`);
+            if (readings.hr) parts.push(`HR: ${readings.hr}`);
+            if (readings.temp) parts.push(`Temp: ${readings.temp}`);
+            if (readings.weight) parts.push(`Weight: ${readings.weight}`);
+            if (readings.rr) parts.push(`RR: ${readings.rr}`);
+            if (readings.spo2) parts.push(`SpO2: ${readings.spo2}%`);
+
+            // Mark the most recent reading clearly
+            const prefix = index === 0 ? '**MOST RECENT** ' : '';
+            return `- ${prefix}${group.date}: ${parts.join(', ')}`;
+          })
           .join('\n')
       : 'None recent';
 
@@ -831,40 +903,125 @@ Reason for Visit: ${context.reason_for_visit || 'Not specified'}
 
     previousDataSection = `
 PREVIOUS VISIT DATA (for comparison):
-Date: ${previousData.lastEncounterSummary?.date || 'Unknown'}
+Date: ${previousData.lastEncounterSummary?.date || previousData.generatedAt || 'Unknown'}
 
-Active Problems at Last Visit:
-${prevConditions.length > 0 ? prevConditions.map((c: any) => `- ${c.problem} (${c.status || 'active'})`).join('\n') : '- None documented'}
+[COUNTS FOR COMPARISON]
+- Active Problems: ${prevConditions.length}
+- Medications: ${prevMeds.length}
+- Allergies: ${prevAllergies.length}
+- Vitals Recorded: ${prevVitals.length}
+- Lab Results: ${prevLabs.length}
 
-Medications at Last Visit:
-${prevMeds.length > 0 ? prevMeds.map((m: any) => `- ${m.name} ${m.dose || ''} ${m.frequency || ''}`).join('\n') : '- None documented'}
+[ACTIVE PROBLEMS AT LAST VISIT]
+${prevConditions.length > 0 ? prevConditions.map((c: any) => `- ${c.problem} (${c.status || 'active'}, onset: ${c.onsetDate || 'unknown'})`).join('\n') : '- None documented'}
 
-Allergies at Last Visit:
-${prevAllergies.length > 0 ? prevAllergies.map((a: any) => `- ${a.allergen} (${a.severity || 'unknown severity'})`).join('\n') : '- None documented'}
+[MEDICATIONS AT LAST VISIT]
+${prevMeds.length > 0 ? prevMeds.map((m: any) => `- ${m.name} ${m.dose || ''} ${m.frequency || ''} (indication: ${m.indication || 'not specified'})`).join('\n') : '- None documented'}
 
-Most Recent Vitals from Last Visit:
-${prevVitals.length > 0 ? prevVitals.slice(0, 1).map((v: any) => `BP: ${v.bp || 'N/A'}, HR: ${v.hr || 'N/A'}, Weight: ${v.weight || 'N/A'}, Temp: ${v.temp || 'N/A'}`).join('\n') : '- None documented'}
+[ALLERGIES AT LAST VISIT] (Total: ${prevAllergies.length})
+${prevAllergies.length > 0 ? prevAllergies.map((a: any) => `- ${a.allergen} (${a.severity || 'unknown severity'}, reaction: ${a.reaction || 'unknown'})`).join('\n') : '- None documented'}
 
-Recent Labs from Last Visit:
-${prevLabs.length > 0 ? prevLabs.slice(0, 5).map((l: any) => `- ${l.name}: ${l.value} ${l.unit || ''} (${l.date || 'no date'})`).join('\n') : '- None documented'}
+[MOST RECENT VITALS FROM LAST VISIT]
+${prevVitals.length > 0 ? prevVitals.slice(0, 3).map((v: any) => {
+  const parts = [];
+  if (v.bp) parts.push(`BP: ${v.bp}`);
+  if (v.hr) parts.push(`HR: ${v.hr}`);
+  if (v.temp) parts.push(`Temp: ${v.temp}`);
+  if (v.weight) parts.push(`Weight: ${v.weight}`);
+  if (v.rr) parts.push(`RR: ${v.rr}`);
+  if (v.spo2) parts.push(`SpO2: ${v.spo2}%`);
+  return `- ${v.date || 'Unknown date'}: ${parts.join(', ') || 'No vitals recorded'}`;
+}).join('\n') : '- None documented'}
+
+[RECENT LABS FROM LAST VISIT]
+${prevLabs.length > 0 ? prevLabs.slice(0, 5).map((l: any) => `- ${l.name}: ${l.value} ${l.unit || ''} (date: ${l.date || 'unknown'}, status: ${l.status || 'unknown'})`).join('\n') : '- None documented'}
+
+[PROCEDURES/IMMUNIZATIONS FROM LAST VISIT]
+${previousData.immunizationsPreventiveCare?.immunizations?.length > 0 ? previousData.immunizationsPreventiveCare.immunizations.slice(0, 3).map((i: any) => `- ${i.vaccine} (${i.date || 'date unknown'})`).join('\n') : '- None recent'}
 `;
     intervalHistoryInstructions = `
 INTERVAL HISTORY SINCE LAST VISIT:
-Compare the PREVIOUS VISIT DATA with the CURRENT data above. Identify and summarize ONLY what changed:
-- New problems/conditions OR problems that resolved
-- Medications: new starts, discontinuations, dose changes
-- Vital signs: significant trends (BP improved/worsened, weight gain/loss >5 lbs)
-- New lab results OR significant changes in lab values
-- New allergies documented
+Compare the PREVIOUS VISIT DATA (from ${previousData.lastEncounterSummary?.date || previousData.generatedAt || 'last visit'}) with CURRENT data.
 
-IMPORTANT:
-- Do NOT list unchanged items
-- Be concise - write 2-4 sentences maximum
-- If truly NOTHING changed, write: "No significant changes documented since last visit."
-- NEVER write "This is the first visit." - previous data IS provided above
-- Focus on clinically meaningful changes only`;
+**CRITICAL: How to Compare Vitals:**
+- In the CURRENT "RECENT VITALS" section, look for the line marked "**MOST RECENT**"
+- Compare ONLY this most recent reading to the "Most Recent Vitals from Last Visit"
+- Ignore older readings that appear in the current vitals list
+
+**CRITICAL: How to Compare Allergies:**
+- Look at "Allergies at Last Visit (Total: X)" vs "ALLERGIES" section with "Total: Y"
+- If the totals are DIFFERENT, you MUST report ALL new allergies with their names
+- Even ONE new allergy is clinically significant and MUST be reported
+
+**Clinical Changes to Detect (CHECK ALL - REPORT EVERY CHANGE):**
+
+1. **ALLERGIES:**
+   - Compare: "Allergies at Last Visit (Total: ${prevAllergies.length})" vs current allergy count
+   - Format: "[ALLERGY-NEW] Penicillin (high severity)" or "[ALLERGY-REMOVED] Sulfa"
+   - If counts differ, list ALL new/removed allergens by name
+
+2. **VITAL SIGNS - Compare MOST RECENT to previous:**
+   - Heart Rate: Change >10 bpm OR >100 or <60 → "[VITAL-ABNORMAL] HR 120 (was 70, +50 bpm)"
+   - Blood Pressure: Change >10 mmHg systolic or >5 diastolic → "[VITAL-CHANGE] BP 135/90 (was 120/80, +15/+10)"
+   - Weight: Change >5 lbs → "[VITAL-CHANGE] Weight 185 lbs (was 180, +5 lbs gain)"
+   - Temperature: Fever >100.4°F or change >1°F → "[VITAL-ABNORMAL] Temp 101.2°F (was 98.6°F)"
+   - Respiratory Rate: Change >4 or >20 or <12 → "[VITAL-ABNORMAL] RR 24 (was 16)"
+   - SpO2: <95% or decrease >2% → "[VITAL-CRITICAL] SpO2 92% (was 98%, -6%)"
+
+3. **MEDICATIONS:**
+   - New medications → "[MED-NEW] Lisinopril 10mg daily for hypertension"
+   - Discontinued → "[MED-STOPPED] Atorvastatin 20mg (discontinued)"
+   - Dose changes → "[MED-CHANGED] Metformin increased from 500mg to 1000mg BID"
+
+4. **CONDITIONS:**
+   - New diagnoses → "[CONDITION-NEW] Type 2 Diabetes Mellitus (diagnosed ${new Date().toISOString().split('T')[0]})"
+   - Resolved conditions → "[CONDITION-RESOLVED] Acute sinusitis (resolved)"
+
+5. **LAB RESULTS:**
+   - New abnormal labs → "[LAB-ABNORMAL] HbA1c 7.8% (normal <5.7%)"
+   - Significant changes → "[LAB-CHANGE] Glucose 180 mg/dL (was 110, +70)"
+   - Missing/overdue labs → "[LAB-OVERDUE] HbA1c due (last done 6 months ago)"
+
+6. **PROCEDURES:**
+   - New procedures → "[PROCEDURE-NEW] Colonoscopy performed ${new Date().toISOString().split('T')[0]}"
+
+7. **IMMUNIZATIONS:**
+   - New vaccines → "[IMMUNIZATION-NEW] Influenza vaccine administered"
+   - Overdue vaccines → "[IMMUNIZATION-DUE] Tdap booster overdue"
+
+**EXAMPLES:**
+- "[ALLERGY-NEW] Penicillin (high severity)"
+- "[VITAL-ABNORMAL] HR 120 bpm (was 70 bpm, +50 bpm - tachycardic)"
+- "[VITAL-CHANGE] Weight 185 lbs (was 180 lbs, +5 lbs)"
+- "[MED-NEW] Lisinopril 10mg daily (started for hypertension)"
+- "[MED-STOPPED] Atorvastatin 20mg (discontinued per patient request)"
+- "[LAB-CHANGE] HbA1c 7.8% (was 6.5%, +1.3% - worsening glycemic control)"
+- "[CONDITION-NEW] Type 2 Diabetes Mellitus"
+
+**COMPREHENSIVE OUTPUT FORMAT:**
+Use this EXACT structure with tags for EVERY change:
+
+"[TAG] Description (previous value → new value, clinical context)"
+
+Write ALL changes found, grouped by category:
+1. Allergies (if any)
+2. Critical vitals (if any)
+3. Vital changes (if any)
+4. Medications (if any)
+5. Conditions (if any)
+6. Labs (if any)
+7. Procedures/Immunizations (if any)
+
+If NOTHING changed: "No significant changes documented since last visit."
+
+**CRITICAL RULES:**
+- Use brackets [TAG] for EVERY item
+- Include previous and new values in parentheses
+- Add clinical context (e.g., "tachycardic", "worsening control", "improvement")
+- Maximum 10 tagged items (prioritize most clinically significant)
+- NEVER write "This is the first visit." - previous data IS provided above`;
     
-    intervalHistorySchemaDescription = 'A concise narrative of what changed since last visit (new conditions, medication changes, vital trends, new labs). If nothing changed, write "No significant changes documented since last visit."';
+    intervalHistorySchemaDescription = 'Tagged list of ALL changes since last visit using format: "[TAG] Description (previous → new, context)". Check: allergies, vitals, weight, medications, conditions, labs, procedures, immunizations. Use tags: ALLERGY-NEW, VITAL-ABNORMAL, VITAL-CHANGE, MED-NEW, MED-STOPPED, MED-CHANGED, CONDITION-NEW, CONDITION-RESOLVED, LAB-ABNORMAL, LAB-CHANGE, LAB-OVERDUE, PROCEDURE-NEW, IMMUNIZATION-NEW, IMMUNIZATION-DUE. If nothing changed: "No significant changes documented since last visit."';
     console.log('[PreChartNote] Using interval history comparison path (previous data present)');
   } else {
     intervalHistoryInstructions = `
@@ -937,6 +1094,17 @@ Return a JSON object:
 }`;
 
   try {
+    // Log key sections of the prompt for debugging
+    console.log('[PreChartNote] ===== PROMPT DEBUG =====');
+    console.log('[PreChartNote] Prompt includes previous data section:', previousDataSection.length > 0);
+    if (previousDataSection.length > 0) {
+      console.log('[PreChartNote] Previous data section preview:', previousDataSection.substring(0, 500));
+    }
+    console.log('[PreChartNote] Current allergies in prompt:', allergiesText.substring(0, 200));
+    console.log('[PreChartNote] Current vitals in prompt:', vitalsText.substring(0, 300));
+    console.log('[PreChartNote] Interval history instructions length:', intervalHistoryInstructions.length);
+    console.log('[PreChartNote] ========================');
+
     const result = await invokeLlama3({
       prompt,
       maxTokens: 2000,
@@ -948,6 +1116,10 @@ Return a JSON object:
 
     const parsed = extractJsonFromResponse(result);
     if (parsed) {
+      // Log what the AI returned for interval history
+      console.log('[PreChartNote] AI returned interval_history:', parsed.interval_history || '(none)');
+      console.log('[PreChartNote] Full AI response keys:', Object.keys(parsed).join(', '));
+
       // Build structured summary sections
       const summaryParts = [];
 

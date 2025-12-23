@@ -41,6 +41,18 @@ export function PreChartTabContent({
 }: PreChartTabContentProps) {
   const [expandedLabs, setExpandedLabs] = useState<Set<string>>(new Set());
 
+  // Format date to "Jan 01, 2001" format
+  const formatDateForChart = (dateStr: string): string => {
+    if (!dateStr) return '';
+    try {
+      const date = new Date(dateStr);
+      if (isNaN(date.getTime())) return dateStr;
+      return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: '2-digit' });
+    } catch {
+      return dateStr;
+    }
+  };
+
   const toggleLabExpansion = (labName: string) => {
     setExpandedLabs(prev => {
       const next = new Set(prev);
@@ -51,6 +63,88 @@ export function PreChartTabContent({
       }
       return next;
     });
+  };
+
+  // Function to render interval history with badges for tagged items
+  const renderIntervalHistoryWithBadges = (text: string) => {
+    // If no changes or first visit
+    if (text === 'This is the first visit.' || text === 'No significant changes documented since last visit.') {
+      return <p className="text-sm text-muted-foreground italic">{text}</p>;
+    }
+
+    // Define badge colors for different tag types
+    const getBadgeClasses = (tag: string): string => {
+      const baseClasses = 'emr-badge text-xs font-medium whitespace-nowrap';
+
+      if (tag.includes('ALLERGY-NEW')) return cn(baseClasses, 'bg-red-100 text-red-700');
+      if (tag.includes('ALLERGY-REMOVED')) return cn(baseClasses, 'bg-gray-100 text-gray-700');
+
+      if (tag.includes('VITAL-CRITICAL')) return cn(baseClasses, 'bg-red-100 text-red-700');
+      if (tag.includes('VITAL-ABNORMAL')) return cn(baseClasses, 'bg-amber-100 text-amber-700');
+      if (tag.includes('VITAL-CHANGE')) return cn(baseClasses, 'bg-blue-100 text-blue-700');
+
+      if (tag.includes('MED-NEW')) return cn(baseClasses, 'bg-green-100 text-green-700');
+      if (tag.includes('MED-STOPPED')) return cn(baseClasses, 'bg-red-100 text-red-700');
+      if (tag.includes('MED-CHANGED')) return cn(baseClasses, 'bg-amber-100 text-amber-700');
+
+      if (tag.includes('CONDITION-NEW')) return cn(baseClasses, 'bg-purple-100 text-purple-700');
+      if (tag.includes('CONDITION-RESOLVED')) return cn(baseClasses, 'bg-green-100 text-green-700');
+
+      if (tag.includes('LAB-CRITICAL') || tag.includes('LAB-ABNORMAL')) return cn(baseClasses, 'bg-red-100 text-red-700');
+      if (tag.includes('LAB-CHANGE')) return cn(baseClasses, 'bg-amber-100 text-amber-700');
+      if (tag.includes('LAB-OVERDUE')) return cn(baseClasses, 'bg-orange-100 text-orange-700');
+
+      if (tag.includes('PROCEDURE-NEW')) return cn(baseClasses, 'bg-indigo-100 text-indigo-700');
+      if (tag.includes('IMMUNIZATION-NEW')) return cn(baseClasses, 'bg-teal-100 text-teal-700');
+      if (tag.includes('IMMUNIZATION-DUE')) return cn(baseClasses, 'bg-orange-100 text-orange-700');
+
+      return cn(baseClasses, 'bg-gray-100 text-gray-700');
+    };
+
+    // Helper to capitalize first letter of description
+    const capitalizeFirst = (str: string): string => {
+      if (!str) return str;
+      return str.charAt(0).toUpperCase() + str.slice(1);
+    };
+
+    // Helper to format tag for display (capitalize words, remove hyphens)
+    const formatTagLabel = (tag: string): string => {
+      return tag
+        .split('-')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+        .join(' ');
+    };
+
+    // Parse text for tags in format [TAG] Description
+    const tagPattern = /\[([A-Z-]+)\]\s*([^\[]+?)(?=\[|$)/g;
+    const matches = [...text.matchAll(tagPattern)];
+
+    if (matches.length === 0) {
+      // No tags found, render as plain text with capitalization
+      return <p className="text-sm">{capitalizeFirst(text)}</p>;
+    }
+
+    // Render each tagged item as a separate line with badge on the right
+    return (
+      <>
+        {matches.map((match, index) => {
+          const tag = match[1];
+          const description = capitalizeFirst(match[2].trim());
+
+          return (
+            <div
+              key={index}
+              className="flex items-start justify-between gap-4 py-2.5 px-3 bg-muted/30 rounded-md hover:bg-muted/50 transition-colors border border-border/50"
+            >
+              <span className="text-sm flex-1 leading-relaxed">{description}</span>
+              <span className={getBadgeClasses(tag)}>
+                {formatTagLabel(tag)}
+              </span>
+            </div>
+          );
+        })}
+      </>
+    );
   };
 
   return (
@@ -144,38 +238,13 @@ export function PreChartTabContent({
             return !isValidJsonString(summary);
           };
 
-          // Check if we have a valid summary from preChartData
-          const encounterSummary = preChartData.lastEncounterSummary;
-          if (encounterSummary && encounterSummary.summary && isValidSummary(encounterSummary.summary)) {
-            return (
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between text-xs text-muted-foreground">
-                  {encounterSummary.date && <span>{encounterSummary.date}</span>}
-                  {encounterSummary.provider && <span>{encounterSummary.provider}</span>}
-                </div>
-                <p className="text-justify">{encounterSummary.summary}</p>
-                {encounterSummary.keyTakeaways && encounterSummary.keyTakeaways.length > 0 && (
-                  <div>
-                    <div className="text-xs font-medium text-muted-foreground mb-1">Key Takeaways</div>
-                    <ul className="list-disc list-inside space-y-1">
-                      {encounterSummary.keyTakeaways.map((item, i) => (
-                        <li key={i} className="text-xs">{item}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            );
-          }
-
-          // Fall back to transcript summary
+          // Use ONLY the most recent transcript summary. Discard any other sources.
           const fb = getLastTranscriptSummary();
           if (fb && fb.summary && isValidSummary(fb.summary)) {
             return (
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between text-xs text-muted-foreground">
-                  {fb.date && <span>{fb.date}</span>}
-                  {fb.provider && <span>{fb.provider}</span>}
+                  {fb.date && <span>{formatDateForChart(fb.date)}</span>}
                 </div>
                 <p className="text-justify">{fb.summary}</p>
               </div>
@@ -351,7 +420,7 @@ export function PreChartTabContent({
                 .map((v) => {
                   const [systolic, diastolic] = v.bp!.split('/').map((val) => parseInt(val) || 0);
                   return {
-                    date: v.date || '',
+                    date: formatDateForChart(v.date || ''),
                     value: systolic,
                     value2: diastolic,
                   };
@@ -375,7 +444,7 @@ export function PreChartTabContent({
               data={preChartData.vitalSignsTrends
                 ?.filter((v) => v.hr)
                 .map((v) => ({
-                  date: v.date || '',
+                  date: formatDateForChart(v.date || ''),
                   value: parseInt(v.hr!) || 0,
                 })) || []}
               unit="bpm"
@@ -393,7 +462,7 @@ export function PreChartTabContent({
               data={preChartData.vitalSignsTrends
                 ?.filter((v) => v.weight)
                 .map((v) => ({
-                  date: v.date || '',
+                  date: formatDateForChart(v.date || ''),
                   value: parseFloat(((parseFloat(v.weight!) || 0) * 2.20462).toFixed(1)),
                 })) || []}
               unit="lbs"
@@ -416,7 +485,7 @@ export function PreChartTabContent({
               data={preChartData.vitalSignsTrends
                 ?.filter((v) => v.spo2)
                 .map((v) => ({
-                  date: v.date || '',
+                  date: formatDateForChart(v.date || ''),
                   value: parseInt(v.spo2!) || 0,
                 })) || []}
               unit="%"
@@ -731,8 +800,10 @@ export function PreChartTabContent({
             {copiedSection === 'intervalHistory' ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-3 h-3" />}
           </button>
         </div>
-        {/* Display the AI-generated interval history directly */}
-        <p className="text-sm">{preChartData.intervalHistory || 'This is the first visit.'}</p>
+        {/* Display the AI-generated interval history with badges */}
+        <div className="space-y-2">
+          {renderIntervalHistoryWithBadges(preChartData.intervalHistory || 'This is the first visit.')}
+        </div>
       </div>
 
       {/* Alerts / Care Gaps Card */}

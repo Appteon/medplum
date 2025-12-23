@@ -55,6 +55,69 @@ async function convertWebmToWav(inputBuffer: Buffer): Promise<Buffer> {
 
 export const healthscribeRouter = Router();
 
+function formatBriefSummaryFromText(text: string, maxChars: number): string {
+	const normalized = (text ?? '').toString().trim();
+	if (!normalized) {
+		return '';
+	}
+	const sentences = normalized
+		.replace(/\s+/g, ' ')
+		.split(/(?<=[.!?])\s+/)
+		.filter((s) => s.trim().length > 0);
+	const candidate = sentences.slice(0, 3).join(' ').trim();
+	if (candidate.length > 0) {
+		return candidate.length > maxChars ? candidate.slice(0, maxChars - 1).trimEnd() + '…' : candidate;
+	}
+	return normalized.length > maxChars ? normalized.slice(0, maxChars - 1).trimEnd() + '…' : normalized;
+}
+
+function formatBriefSummaryFromScribeNotes(scribeText: string): string {
+	const lines = (scribeText ?? '')
+		.toString()
+		.split(/\r?\n/)
+		.map((l) => l.trim());
+
+	let chiefComplaint = '';
+	let inChiefComplaint = false;
+	let inKeyPoints = false;
+	const keyPoints: string[] = [];
+
+	for (const line of lines) {
+		if (!line) {
+			continue;
+		}
+		if (line.toUpperCase() === 'CHIEF COMPLAINT') {
+			inChiefComplaint = true;
+			inKeyPoints = false;
+			continue;
+		}
+		if (line.toUpperCase() === 'KEY POINTS') {
+			inKeyPoints = true;
+			inChiefComplaint = false;
+			continue;
+		}
+		if (line.toUpperCase() === 'ASSESSMENT & PLAN') {
+			inKeyPoints = false;
+			inChiefComplaint = false;
+			continue;
+		}
+
+		if (inChiefComplaint && !chiefComplaint) {
+			chiefComplaint = line;
+			continue;
+		}
+		if (inKeyPoints && keyPoints.length < 2 && line.startsWith('-')) {
+			keyPoints.push(line.replace(/^[-\s]+/, '').trim());
+		}
+	}
+
+	const parts = [chiefComplaint, ...keyPoints].filter(Boolean);
+	if (parts.length > 0) {
+		return formatBriefSummaryFromText(parts.join(' '), 420);
+	}
+	return formatBriefSummaryFromText(scribeText, 420);
+}
+
 // Upload audio directly, store as Binary + Media with healthscribe metadata
 healthscribeRouter.post('/upload-audio', async (req, res): Promise<void> => {
 	try {
@@ -640,6 +703,86 @@ healthscribeRouter.get('/scribe-notes/:patientId', async (req, res): Promise<voi
 		});
 
 		res.status(200).json({ ok: true, notes: result });
+		return;
+	} catch (err: any) {
+		res.status(500).json({ ok: false, error: err?.message ?? 'Server error' });
+		return;
+	}
+});
+
+// Get the latest transcript summary for a patient (transcript-only; no other EMR context)
+healthscribeRouter.get('/last-transcript-summary/:patientId', async (req, res): Promise<void> => {
+	try {
+		const { patientId } = req.params as { patientId: string };
+		const lastTranscriptSummary = await requestContextStore.run(AuthenticatedRequestContext.system(), async () => {
+			const repo = getSystemRepo();
+			const transcriptSearch = await repo.search({
+				resourceType: 'DocumentReference',
+				count: 1,
+				filters: [
+					{ code: 'subject', operator: 'eq', value: `Patient/${patientId}` },
+					{ code: 'category', operator: 'eq', value: 'transcript' },
+				],
+				sortRules: [{ code: 'date', descending: true }],
+			});
+
+			const transcriptEntry = transcriptSearch.entry?.[0];
+			if (!transcriptEntry) {
+				return null;
+			}
+
+			const transcriptDoc = transcriptEntry.resource as DocumentReference;
+			const transcriptDate = transcriptDoc.date ?? undefined;
+			const transcriptData = transcriptDoc.content?.[0]?.attachment?.data;
+			const transcriptText = transcriptData ? Buffer.from(transcriptData, 'base64').toString('utf-8') : '';
+
+			// Attempt to find matching scribe-notes generated from this transcript.
+			const jobName =
+				transcriptDoc.identifier?.find((i) => i.system === 'http://medplum.com/fhir/healthscribe-job')?.value ??
+				(transcriptDoc.extension as any)?.find(
+					(e: any) => e.url === 'http://medplum.com/fhir/StructureDefinition/healthscribe-job-name'
+				)?.valueString ??
+				'';
+
+			let scribeText = '';
+			if (jobName) {
+				const scribeSearch = await repo.search({
+					resourceType: 'DocumentReference',
+					count: 1,
+					filters: [
+						{
+							code: 'identifier',
+							operator: 'eq',
+							value: `http://medplum.com/fhir/healthscribe-job|${jobName}-scribe`,
+						},
+					],
+				});
+				const scribeEntry = scribeSearch.entry?.[0];
+				if (scribeEntry) {
+					const scribeDoc = scribeEntry.resource as DocumentReference;
+					const scribeData = scribeDoc.content?.[0]?.attachment?.data;
+					if (scribeData) {
+						try {
+							scribeText = Buffer.from(scribeData, 'base64').toString('utf-8');
+						} catch {
+							// ignore decode errors
+						}
+					}
+				}
+			}
+
+			const summary = scribeText
+				? formatBriefSummaryFromScribeNotes(scribeText)
+				: formatBriefSummaryFromText(transcriptText, 420);
+
+			return {
+				date: transcriptDate,
+				summary,
+				provider: undefined,
+			};
+		});
+
+		res.status(200).json({ ok: true, lastTranscriptSummary });
 		return;
 	} catch (err: any) {
 		res.status(500).json({ ok: false, error: err?.message ?? 'Server error' });

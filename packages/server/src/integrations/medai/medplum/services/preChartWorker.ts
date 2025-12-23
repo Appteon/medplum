@@ -820,21 +820,30 @@ export async function generatePreChartNoteForPatient(patientId: string, appointm
 
     // Extract interval_history from the structured AI response
     let intervalHistoryText = 'This is the first visit.';
+    console.log('[PreChartWorker] ===== INTERVAL HISTORY EXTRACTION =====');
+    console.log('[PreChartWorker] Has changes field:', !!changes);
+    console.log('[PreChartWorker] Has previous content:', !!previousPreChartContent);
+
     if (changes) {
       try {
         const parsedChanges = JSON.parse(changes);
         console.log('[PreChartWorker] Parsed changes keys:', Object.keys(parsedChanges));
         if (parsedChanges.interval_history) {
           intervalHistoryText = parsedChanges.interval_history;
-          console.log('[PreChartWorker] Extracted interval history:', intervalHistoryText);
+          console.log('[PreChartWorker] Extracted interval history from AI:', intervalHistoryText);
 
           // Guardrail: if we had previous data but the model still says first visit, override to a neutral message
           if (previousPreChartContent && intervalHistoryText.trim().toLowerCase().includes('first visit')) {
-            console.warn('[PreChartWorker] Interval history incorrectly marked as first visit despite previous data; overriding');
+            console.warn('[PreChartWorker] ⚠️ GUARDRAIL TRIGGERED: Interval history incorrectly marked as first visit despite previous data');
+            console.warn('[PreChartWorker] Original AI response:', intervalHistoryText);
+            console.warn('[PreChartWorker] Overriding to: No significant changes documented since last visit.');
             intervalHistoryText = 'No significant changes documented since last visit.';
+          } else {
+            console.log('[PreChartWorker] ✓ Interval history looks valid, using AI response');
           }
         } else {
-          console.warn('[PreChartWorker] No interval_history field in changes');
+          console.warn('[PreChartWorker] ⚠️ No interval_history field in changes');
+          console.warn('[PreChartWorker] Available fields:', Object.keys(parsedChanges).join(', '));
         }
       } catch (err) {
         console.warn('[PreChartWorker] Could not parse changes field for interval history:', err);
@@ -845,6 +854,7 @@ export async function generatePreChartNoteForPatient(patientId: string, appointm
     }
 
     console.log('[PreChartWorker] Final interval history text:', intervalHistoryText);
+    console.log('[PreChartWorker] ==========================================');
 
     // Build structured JSON for frontend parsing
     const structuredNote = {
