@@ -730,9 +730,9 @@ export const ScribeColumn = ({
         console.warn('Job creation returned error:', started?.error);
       }
 
-      // Use Soniox async API to get accurate transcript instead of real-time transcript
+      // Process audio through transcription service
       // This can take 5-30+ minutes for long recordings, so we need a very long timeout
-      setLiveTranscript('Processing audio with Soniox async transcription...\n(This may take several minutes for longer recordings)');
+      setLiveTranscript('Processing audio transcription...\n(This may take several minutes for longer recordings)');
 
       let asyncTranscript = '';
       try {
@@ -759,7 +759,7 @@ export const ScribeColumn = ({
         if (!asyncResp.ok) {
           const errorText = await asyncResp.text();
           console.error('Async transcription failed:', asyncResp.status, errorText);
-          throw new Error(`Async transcription failed (${asyncResp.status}): ${errorText}`);
+          throw new Error(`Transcription failed (${asyncResp.status}): ${errorText}`);
         }
 
         const asyncResult = await asyncResp.json();
@@ -770,23 +770,23 @@ export const ScribeColumn = ({
           console.log('  - Token count:', asyncResult.tokenCount);
           console.log('  - Segments:', asyncResult.segments?.length || 0);
           console.log('  - Full async transcript:', asyncTranscript);
-          setLiveTranscript('Async transcription complete.\n\n' + asyncTranscript);
+          setLiveTranscript('Transcription complete.\n\n' + asyncTranscript);
         } else {
           console.warn('Async transcription returned empty result:', asyncResult);
           const warningMsg = asyncResult.error || 'No transcript returned';
-          setLiveTranscript(`Async transcription returned no text: ${warningMsg}. Proceeding without transcript.`);
+          setLiveTranscript(`Transcription returned no text: ${warningMsg}. Proceeding without transcript.`);
         }
       } catch (asyncErr: any) {
-        console.error('Async transcription error:', asyncErr);
-        setLiveTranscript(`Async transcription error: ${asyncErr.message}. Proceeding without transcript.`);
+        console.error('Transcription error:', asyncErr);
+        setLiveTranscript(`Transcription error: ${asyncErr.message}. Proceeding without transcript.`);
         // Note: We don't re-throw here to allow the flow to continue without transcript
       }
 
-      // Warn if we don't have an async transcript
+      // Warn if we don't have a transcript
       if (!asyncTranscript || !asyncTranscript.trim()) {
-        console.warn('⚠️ No async transcript available - scribe notes will not be generated');
-        console.warn('  - This means the audio was uploaded but async transcription failed or returned empty');
-        setLiveTranscript((prev) => prev + '\n\n⚠️ Async transcription failed. No scribe notes will be generated.');
+        console.warn('⚠️ No transcript available - scribe notes will not be generated');
+        console.warn('  - This means the audio was uploaded but transcription failed or returned empty');
+        setLiveTranscript((prev) => prev + '\n\n⚠️ Transcription failed. No scribe notes will be generated.');
       }
 
       // Use async transcript for scribe and synthesis generation
