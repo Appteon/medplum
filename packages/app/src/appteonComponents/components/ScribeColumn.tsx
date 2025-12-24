@@ -666,21 +666,33 @@ export const ScribeColumn = ({
         uploadHeaders['X-Audio-Duration'] = duration.toString();
       }
 
-      setLiveTranscript('Uploading audio...');
+      const fileSizeMB = (file.size / (1024 * 1024)).toFixed(2);
+      setLiveTranscript(`Uploading audio (${fileSizeMB} MB)...`);
+
+      // Use longer timeout for large file uploads (30 minutes should be plenty)
+      const uploadTimeoutMs = 30 * 60 * 1000; // 30 minutes
+      const uploadAbortController = new AbortController();
+      const uploadTimeoutId = setTimeout(() => uploadAbortController.abort(), uploadTimeoutMs);
 
       const uploadResponse = await authenticatedFetch(UPLOAD_AUDIO_URL, {
         method: 'POST',
         headers: uploadHeaders,
         body: file,
+        signal: uploadAbortController.signal,
       }).catch((e) => {
+        clearTimeout(uploadTimeoutId);
+        if (e.name === 'AbortError') {
+          throw new Error(`Upload timed out after 30 minutes for ${fileSizeMB} MB file. Please try again.`);
+        }
         // Handle network errors (connection reset, timeout, etc.)
         const isLargeFile = file.size > 50 * 1024 * 1024; // 50MB
-        const fileSizeMB = (file.size / (1024 * 1024)).toFixed(2);
         throw new Error(
           isLargeFile
-            ? `Network error uploading large audio file (${fileSizeMB} MB). This may indicate a timeout or connection issue. ${e.message}`
+            ? `Network error uploading large audio file (${fileSizeMB} MB). ${e.message}`
             : `Network error: ${e.message}`
         );
+      }).finally(() => {
+        clearTimeout(uploadTimeoutId);
       });
 
       if (!uploadResponse.ok) {
@@ -719,16 +731,29 @@ export const ScribeColumn = ({
       }
 
       // Use Soniox async API to get accurate transcript instead of real-time transcript
-      setLiveTranscript('Processing audio with Soniox async transcription...');
+      // This can take 5-30+ minutes for long recordings, so we need a very long timeout
+      setLiveTranscript('Processing audio with Soniox async transcription...\n(This may take several minutes for longer recordings)');
 
       let asyncTranscript = '';
       try {
+        // Create AbortController with 90-minute timeout for long recordings
+        const transcriptionTimeoutMs = 90 * 60 * 1000; // 90 minutes
+        const abortController = new AbortController();
+        const timeoutId = setTimeout(() => abortController.abort(), transcriptionTimeoutMs);
+
         const asyncResp = await authenticatedFetch(`${ASYNC_TRANSCRIBE_URL}/${encodeURIComponent(jobName)}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          signal: abortController.signal,
         }).catch((e) => {
+          clearTimeout(timeoutId);
+          if (e.name === 'AbortError') {
+            throw new Error('Transcription timed out after 90 minutes. Please try with a shorter recording.');
+          }
           console.error('Network error calling async transcription:', e);
           throw new Error(`Network error during transcription: ${e.message}`);
+        }).finally(() => {
+          clearTimeout(timeoutId);
         });
 
         if (!asyncResp.ok) {

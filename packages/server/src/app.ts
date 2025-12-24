@@ -11,7 +11,7 @@ import type { OperationOutcome } from '@medplum/fhirtypes';
 import compression from 'compression';
 import cors from 'cors';
 import type { Express, NextFunction, Request, RequestHandler, Response } from 'express';
-import { json, Router, text, urlencoded } from 'express';
+import { json, raw, Router, text, urlencoded } from 'express';
 import { rmSync } from 'node:fs';
 import http from 'node:http';
 import { tmpdir } from 'node:os';
@@ -201,6 +201,8 @@ export async function initApp(app: Express, config: MedplumServerConfig): Promis
 
   app.use(urlencoded({ extended: false }));
   app.use(text({ type: [ContentType.TEXT, ContentType.HL7_V2] }));
+  // Support large audio file uploads (up to 500MB) for healthscribe transcription
+  app.use(raw({ type: ['audio/*', 'video/*'], limit: '500mb' }));
   app.use(json({ type: JSON_TYPE, limit: config.maxJsonSize }));
   app.use(
     hl7BodyParser({

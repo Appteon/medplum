@@ -13,8 +13,16 @@ import { getBinaryStorage } from '../../../../storage/loader.js';
 import { getRepoForPatient } from '../services/preChartWorker.js';
 
 // Convert webm audio to wav format using ffmpeg
-async function convertWebmToWav(inputBuffer: Buffer): Promise<Buffer> {
+// Includes timeout handling for large files
+async function convertWebmToWav(inputBuffer: Buffer, timeoutMs: number = 300000): Promise<Buffer> {
+	const inputSizeMB = (inputBuffer.length / (1024 * 1024)).toFixed(2);
+	console.log(`Starting ffmpeg conversion for ${inputSizeMB} MB audio file...`);
+	const startTime = Date.now();
+
 	return new Promise((resolve, reject) => {
+		let resolved = false;
+		let timeoutId: NodeJS.Timeout | null = null;
+
 		const ffmpeg = spawn('ffmpeg', [
 			'-i', 'pipe:0',           // Read from stdin
 			'-f', 'wav',              // Output format
@@ -27,6 +35,25 @@ async function convertWebmToWav(inputBuffer: Buffer): Promise<Buffer> {
 		const outputChunks: Buffer[] = [];
 		let errorOutput = '';
 
+		const cleanup = () => {
+			if (timeoutId) {
+				clearTimeout(timeoutId);
+				timeoutId = null;
+			}
+			try {
+				ffmpeg.kill('SIGKILL');
+			} catch {}
+		};
+
+		// Set timeout for conversion (default 5 minutes)
+		timeoutId = setTimeout(() => {
+			if (!resolved) {
+				resolved = true;
+				cleanup();
+				reject(new Error(`ffmpeg conversion timeout after ${timeoutMs / 1000} seconds for ${inputSizeMB} MB file`));
+			}
+		}, timeoutMs);
+
 		ffmpeg.stdout.on('data', (chunk) => {
 			outputChunks.push(chunk);
 		});
@@ -36,15 +63,31 @@ async function convertWebmToWav(inputBuffer: Buffer): Promise<Buffer> {
 		});
 
 		ffmpeg.on('close', (code) => {
+			if (resolved) return;
+			resolved = true;
+			cleanup();
+
+			const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(1);
 			if (code === 0) {
+				const outputSizeMB = (Buffer.concat(outputChunks).length / (1024 * 1024)).toFixed(2);
+				console.log(`ffmpeg conversion complete: ${inputSizeMB} MB -> ${outputSizeMB} MB in ${elapsedSec}s`);
 				resolve(Buffer.concat(outputChunks));
 			} else {
-				reject(new Error(`ffmpeg exited with code ${code}: ${errorOutput}`));
+				console.error(`ffmpeg failed after ${elapsedSec}s: ${errorOutput.slice(-500)}`);
+				reject(new Error(`ffmpeg exited with code ${code}: ${errorOutput.slice(-500)}`));
 			}
 		});
 
 		ffmpeg.on('error', (err) => {
+			if (resolved) return;
+			resolved = true;
+			cleanup();
 			reject(new Error(`ffmpeg spawn error: ${err.message}`));
+		});
+
+		// Handle stdin errors (e.g., if ffmpeg closes stdin early)
+		ffmpeg.stdin.on('error', (err) => {
+			console.warn('ffmpeg stdin error (may be normal):', err.message);
 		});
 
 		// Write input buffer to ffmpeg stdin
@@ -138,15 +181,23 @@ healthscribeRouter.post('/upload-audio', async (req, res): Promise<void> => {
 		const result = await requestContextStore.run(AuthenticatedRequestContext.system(), async () => {
 			const { repo } = await getRepoForPatient(patientId);
 			const storage = getBinaryStorage();
-			
-			// Read the audio data from the request stream
-			const chunks: Buffer[] = [];
-			for await (const chunk of req) {
-				chunks.push(chunk);
+
+			// Get audio data from body (populated by raw() body parser for audio/* types)
+			// The raw() body parser with limit: '500mb' handles large audio files
+			let audioBuffer: Buffer;
+			if (Buffer.isBuffer(req.body) && req.body.length > 0) {
+				audioBuffer = req.body;
+			} else {
+				// Fallback: read from stream if body parser didn't handle it
+				const chunks: Buffer[] = [];
+				for await (const chunk of req) {
+					chunks.push(chunk);
+				}
+				audioBuffer = Buffer.concat(chunks);
 			}
-			const audioBuffer = Buffer.concat(chunks);
-			
-			console.log('Audio data size:', audioBuffer.length, 'bytes');
+
+			const sizeMB = (audioBuffer.length / (1024 * 1024)).toFixed(2);
+			console.log(`Audio data received: ${sizeMB} MB (${audioBuffer.length} bytes)`);
 
 			// Create Binary resource first (without data - will be stored externally)
 			// This supports files up to 500MB using getBinaryStorage()
@@ -888,36 +939,50 @@ healthscribeRouter.post('/async-transcribe/:jobName', async (req, res): Promise<
 				throw new Error('SONIOX_API_KEY is not configured');
 			}
 
-			// Helper function for Soniox API calls
+			// Helper function for Soniox API calls with timeout
 			const sonioxApiFetch = async (
 				endpoint: string,
-				options: { method?: string; body?: any; headers?: Record<string, string> } = {}
+				options: { method?: string; body?: any; headers?: Record<string, string>; timeoutMs?: number } = {}
 			) => {
-				const { method = 'GET', body, headers = {} } = options;
-				const fetchRes = await fetch(`${SONIOX_API_BASE_URL}${endpoint}`, {
-					method,
-					headers: {
-						Authorization: `Bearer ${SONIOX_API_KEY}`,
-						...headers,
-					},
-					body,
-				} as any);
+				const { method = 'GET', body, headers = {}, timeoutMs = 600000 } = options; // 10 min default timeout
+				const controller = new AbortController();
+				const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-				if (!fetchRes.ok) {
-					const errorText = await fetchRes.text();
-					throw new Error(`Soniox API error ${fetchRes.status}: ${errorText}`);
+				try {
+					const fetchRes = await fetch(`${SONIOX_API_BASE_URL}${endpoint}`, {
+						method,
+						headers: {
+							Authorization: `Bearer ${SONIOX_API_KEY}`,
+							...headers,
+						},
+						body,
+						signal: controller.signal,
+					} as any);
+
+					if (!fetchRes.ok) {
+						const errorText = await fetchRes.text();
+						throw new Error(`Soniox API error ${fetchRes.status}: ${errorText}`);
+					}
+					return method !== 'DELETE' ? fetchRes.json() : null;
+				} finally {
+					clearTimeout(timeoutId);
 				}
-				return method !== 'DELETE' ? fetchRes.json() : null;
 			};
 
 			// Upload processed audio to Soniox
+			const fileSizeMB = (processedBuffer.length / (1024 * 1024)).toFixed(2);
+			console.log(`Uploading ${fileSizeMB} MB audio to Soniox...`);
+			const uploadStartTime = Date.now();
+
 			const form = new FormData();
 			const blob = new Blob([new Uint8Array(processedBuffer)], { type: processedContentType });
 			form.append('file', blob, processedFilename);
-			const uploadResult: any = await sonioxApiFetch('/v1/files', { method: 'POST', body: form as any });
+			// Use longer timeout for file uploads (10 minutes for large files)
+			const uploadResult: any = await sonioxApiFetch('/v1/files', { method: 'POST', body: form as any, timeoutMs: 600000 });
 			const fileId = uploadResult.id as string;
 
-			console.log('Uploaded audio to Soniox, fileId:', fileId);
+			const uploadDuration = ((Date.now() - uploadStartTime) / 1000).toFixed(1);
+			console.log(`Uploaded audio to Soniox in ${uploadDuration}s, fileId: ${fileId}`);
 
 			// Create transcription job
 			const config = {
