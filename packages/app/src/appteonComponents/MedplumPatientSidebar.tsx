@@ -81,6 +81,9 @@ export function MedplumPatientSidebar({
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
   const [appointmentsMap, setAppointmentsMap] = useState<Record<string, any[]>>({});
   const [appointmentsLoaded, setAppointmentsLoaded] = useState(false);
+  // Resolve at runtime so the bundler cannot fold the placeholder before the Docker entrypoint replaces it
+  const showApptFiltersFlag = (typeof globalThis !== 'undefined' && (globalThis as any).__MEDPLUM_SHOW_APPT_FILTERS__) ?? '__MEDPLUM_SHOW_APPT_FILTERS__';
+  const showApptFilters = showApptFiltersFlag !== 'false';
   const filters = useMemo(() => (
     [
       { key: 'today' as const, label: 'Today', icon: <Calendar className="w-3 h-3" /> },
@@ -88,7 +91,7 @@ export function MedplumPatientSidebar({
       { key: 'thisWeek' as const, label: 'This Week', icon: <CalendarRange className="w-3 h-3" /> },
     ]
   ), []);
-  
+
   const itemsPerPage = 10;
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -379,18 +382,20 @@ export function MedplumPatientSidebar({
                 </button>
               )}
             </div>
-            <div className="mt-3 flex gap-2">
-              {filters.map((filter) => (
-                <button
-                  key={filter.key}
-                  onClick={() => handleFilterSelect(filter.key)}
-                  className={`emr-filter-btn flex items-center gap-1.5 ${activeFilter === filter.key ? 'active' : ''}`}
-                >
-                  {filter.icon}
-                  <span>{filter.label}</span>
-                </button>
-              ))}
-            </div>
+            {showApptFilters && (
+              <div className="mt-3 flex gap-2">
+                {filters.map((filter) => (
+                  <button
+                    key={filter.key}
+                    onClick={() => handleFilterSelect(filter.key)}
+                    className={`emr-filter-btn flex items-center gap-1.5 ${activeFilter === filter.key ? 'active' : ''}`}
+                  >
+                    {filter.icon}
+                    <span>{filter.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="mt-2 text-xs text-gray-300 font-medium">
               {filteredPatients.length} patient{filteredPatients.length === 1 ? '' : 's'}
             </div>

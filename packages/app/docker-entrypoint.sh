@@ -10,6 +10,7 @@ set -e
 : ${RECAPTCHA_SITE_KEY:="6LfHdsYdAAAAAC0uLnnRrDrhcXnziiUwKd8VtLNq"}
 : ${MEDPLUM_REGISTER_ENABLED:="true"}
 : ${MEDPLUM_AWS_TEXTRACT_ENABLED:="true"}
+: ${MEDPLUM_SHOW_APPT_FILTERS:="true"}
 
 # Find all JS files in the assets directory
 # Update the app config
@@ -21,6 +22,7 @@ find "/usr/share/nginx/html/assets" -type f -exec sed -i \
   -e "s|__RECAPTCHA_SITE_KEY__|${RECAPTCHA_SITE_KEY}|g" \
   -e "s|__MEDPLUM_REGISTER_ENABLED__|${MEDPLUM_REGISTER_ENABLED}|g" \
   -e "s|__MEDPLUM_AWS_TEXTRACT_ENABLED__|${MEDPLUM_AWS_TEXTRACT_ENABLED}|g" \
+  -e "s|__MEDPLUM_SHOW_APPT_FILTERS__|${MEDPLUM_SHOW_APPT_FILTERS}|g" \
   {} \;
 
 echo "Environment variable replacement complete."

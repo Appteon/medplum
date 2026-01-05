@@ -193,6 +193,7 @@ services:
       # This is read by the app's entrypoint to configure API base URL
       MEDPLUM_BASE_URL: 'https://healthai.appteon.ai/api/'
       RECAPTCHA_SITE_KEY: '6Lfqjy0sAAAAAAfKiIBJSa_Rz8vFzdT4Q4PJ--mt'
+      MEDPLUM_SHOW_APPT_FILTERS: 'true'
     healthcheck:
       test: ['CMD', 'curl', '-f', 'http://127.0.0.1:3000']
       interval: 10s
