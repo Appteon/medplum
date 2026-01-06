@@ -64,15 +64,17 @@ export function Header(props: HeaderProps): JSX.Element {
         </Text>
         <Group gap="lg" align="center">
           {props.notifications}
-          <UnstyledButton
-            className={classes.homeButton}
-            aria-label="Home"
-            onClick={() => navigate('/')}
-            title="Home"
-            style={{ display: 'flex', alignItems: 'center', height: '40px', padding: '8px 12px', borderRadius: '8px' }}
-          >
-            <IconHome size={20} stroke={1.5} />
-          </UnstyledButton>
+          {props.pathname === '/review' && (
+            <UnstyledButton
+              className={classes.homeButton}
+              aria-label="Home"
+              onClick={() => navigate('/')}
+              title="Home"
+              style={{ display: 'flex', alignItems: 'center', height: '40px', padding: '8px 12px', borderRadius: '8px' }}
+            >
+              <IconHome size={20} stroke={1.5} />
+            </UnstyledButton>
+          )}
           <Menu
             width={260}
             shadow="xl"
