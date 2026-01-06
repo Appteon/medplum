@@ -207,6 +207,12 @@ export type PreChartContext = {
     summary?: string | null;
     provider?: string | null;
   };
+  // Raw transcript content for AI to summarize into last_encounter_summary
+  last_encounter_transcript?: {
+    date?: string | null;
+    content: string;
+    provider?: string | null;
+  };
 };
 
 // ============================================================================
@@ -888,6 +894,17 @@ Reason for Visit: ${context.reason_for_visit || 'Not specified'}
     ? `Date: ${safeDate(context.last_encounter.date)}\nProvider: ${context.last_encounter.provider || 'Unknown'}\nSummary: ${context.last_encounter.summary || 'No summary'}`
     : 'No previous encounter documented';
 
+  // Include transcript content if available for AI to summarize
+  const transcriptText = context.last_encounter_transcript
+    ? `
+LAST ENCOUNTER TRANSCRIPT (summarize in 3-6 sentences):
+Date: ${context.last_encounter_transcript.date || 'Unknown'}
+Provider: ${context.last_encounter_transcript.provider || 'Unknown'}
+Transcript Content:
+${context.last_encounter_transcript.content.substring(0, 4000)}${context.last_encounter_transcript.content.length > 4000 ? '\n... (transcript truncated)' : ''}
+`
+    : '';
+
   // Build previous data section for comparison if available
   let previousDataSection = '';
   let intervalHistoryInstructions = '';
@@ -1063,6 +1080,7 @@ ${immunizationsText}
 
 LAST ENCOUNTER:
 ${lastEncounterText}
+${transcriptText}
 ${previousDataSection}
 
 IMPORTANT FORMATTING RULES:
@@ -1085,6 +1103,7 @@ Create a concise pre-chart note that:
 Return a JSON object:
 {
   "summary": "The pre-chart preparation note (1-2 paragraphs, concise). Only mention items with actual data.",
+  "last_encounter_summary": "If LAST ENCOUNTER TRANSCRIPT is provided above, summarize it in 3-6 sentences focusing on: chief complaint, key findings, diagnoses discussed, and treatment plan. If no transcript provided, use null.",
   "interval_history": "${intervalHistorySchemaDescription}",
   "key_conditions": ["list", "of", "key", "conditions"],
   "medications_to_review": ["meds", "needing", "attention"],

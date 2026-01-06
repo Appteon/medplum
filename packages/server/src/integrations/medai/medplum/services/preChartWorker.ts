@@ -779,6 +779,125 @@ export async function generatePreChartNoteForPatient(patientId: string, appointm
       console.error(`[PreChartWorker] Error fetching past notes for patient ${patientId}:`, e);
     }
 
+    // Search for last encounter - prioritize transcripts, then other encounter documents
+    // The transcript content will be passed to the AI for summarization
+    let lastEncounterTranscript: { date?: string; content: string; provider?: string } | null = null;
+    let lastEncounterDoc: { date?: string; summary: string; provider?: string } | null = null;
+
+    try {
+      console.log(`[PreChartWorker] Searching for last encounter (transcript or document) for patient ${patientId}...`);
+
+      // Priority 1: Search for transcripts - these will be summarized by the AI
+      const transcriptBundle = await repo.search({
+        resourceType: 'DocumentReference',
+        count: 1,
+        filters: [
+          { code: 'subject', operator: 'eq', value: `Patient/${patientId}` },
+          { code: 'category', operator: 'eq', value: 'transcript' },
+        ],
+        sortRules: [{ code: 'date', descending: true }],
+      });
+
+      if (transcriptBundle.entry && transcriptBundle.entry.length > 0) {
+        const transcriptDoc = transcriptBundle.entry[0].resource as DocumentReference;
+        console.log(`[PreChartWorker] Found transcript document: ${transcriptDoc.id} from ${transcriptDoc.date}`);
+
+        let transcriptContent = '';
+        if (transcriptDoc.content?.[0]?.attachment?.data) {
+          try {
+            transcriptContent = Buffer.from(transcriptDoc.content[0].attachment.data, 'base64').toString('utf-8');
+          } catch {
+            // Ignore decode errors
+          }
+        }
+
+        if (transcriptContent) {
+          lastEncounterTranscript = {
+            date: transcriptDoc.date || undefined,
+            content: transcriptContent,
+            provider: transcriptDoc.author?.[0]?.display || undefined,
+          };
+          console.log(`[PreChartWorker] Found transcript for AI summarization (${transcriptContent.length} chars)`);
+        }
+      }
+
+      // Priority 2: If no transcript, search for other encounter documents (synthesis notes, progress notes)
+      if (!lastEncounterTranscript) {
+        const encounterBundle = await repo.search({
+          resourceType: 'DocumentReference',
+          count: 1,
+          filters: [
+            { code: 'subject', operator: 'eq', value: `Patient/${patientId}` },
+            { code: 'type', operator: 'eq', value: 'http://loinc.org|11506-3' }, // Progress note LOINC code
+          ],
+          sortRules: [{ code: 'date', descending: true }],
+        });
+
+        if (encounterBundle.entry && encounterBundle.entry.length > 0) {
+          const encounterDoc = encounterBundle.entry[0].resource as DocumentReference;
+          console.log(`[PreChartWorker] Found encounter document: ${encounterDoc.id} from ${encounterDoc.date}`);
+
+          let encounterContent = encounterDoc.description || '';
+          const contentExt = encounterDoc.extension?.find((e: any) =>
+            e.url === 'http://medplum.com/fhir/StructureDefinition/smart-synthesis-content'
+          );
+          if (contentExt?.valueString) {
+            encounterContent = contentExt.valueString;
+          } else if (encounterDoc.content?.[0]?.attachment?.data) {
+            try {
+              encounterContent = Buffer.from(encounterDoc.content[0].attachment.data, 'base64').toString('utf-8');
+            } catch {
+              // Keep description as fallback
+            }
+          }
+
+          if (encounterContent) {
+            // Try to extract readable summary from JSON content
+            let readableSummary = encounterContent;
+            try {
+              const parsed = JSON.parse(encounterContent);
+              if (parsed.subjective) {
+                const cc = parsed.subjective.chiefComplaint || '';
+                const hpi = parsed.subjective.hpiNarrative || '';
+                readableSummary = cc + (hpi ? ` ${hpi}` : '');
+              }
+            } catch {
+              // Not JSON, use as-is (truncated if too long)
+              if (encounterContent.length > 500) {
+                readableSummary = encounterContent.substring(0, 500) + '...';
+              }
+            }
+
+            lastEncounterDoc = {
+              date: encounterDoc.date || undefined,
+              summary: readableSummary,
+              provider: encounterDoc.author?.[0]?.display || undefined,
+            };
+            console.log(`[PreChartWorker] Found encounter document for last encounter summary`);
+          }
+        }
+      }
+
+      if (lastEncounterTranscript) {
+        console.log(`[PreChartWorker] Will use transcript for AI summarization`);
+      } else if (lastEncounterDoc) {
+        console.log(`[PreChartWorker] Will use encounter document for last encounter summary`);
+      } else {
+        console.log(`[PreChartWorker] No previous encounters found - this is the patient's first visit`);
+      }
+    } catch (e) {
+      console.error(`[PreChartWorker] Error searching for last encounter:`, e);
+    }
+
+    // Add transcript to context for AI summarization if found
+    if (lastEncounterTranscript) {
+      context.last_encounter_transcript = {
+        date: lastEncounterTranscript.date || null,
+        content: lastEncounterTranscript.content,
+        provider: lastEncounterTranscript.provider || null,
+      };
+    }
+
     // Log context summary
     console.log('[PreChartWorker] Fetched EMR context for pre-chart note:', {
       conditions: context.chronic_conditions?.length || 0,
@@ -818,16 +937,27 @@ export async function generatePreChartNoteForPatient(patientId: string, appointm
       throw new Error(`Failed to generate pre-chart note content for patient ${patientId}`);
     }
 
-    // Extract interval_history from the structured AI response
+    // Extract interval_history and last_encounter_summary from the structured AI response
     let intervalHistoryText = 'This is the first visit.';
-    console.log('[PreChartWorker] ===== INTERVAL HISTORY EXTRACTION =====');
+    let aiLastEncounterSummary: string | null = null;
+
+    console.log('[PreChartWorker] ===== AI RESPONSE EXTRACTION =====');
     console.log('[PreChartWorker] Has changes field:', !!changes);
     console.log('[PreChartWorker] Has previous content:', !!previousPreChartContent);
+    console.log('[PreChartWorker] Has transcript:', !!lastEncounterTranscript);
 
     if (changes) {
       try {
         const parsedChanges = JSON.parse(changes);
         console.log('[PreChartWorker] Parsed changes keys:', Object.keys(parsedChanges));
+
+        // Extract last_encounter_summary (AI-summarized transcript)
+        if (parsedChanges.last_encounter_summary && typeof parsedChanges.last_encounter_summary === 'string' && parsedChanges.last_encounter_summary !== 'null') {
+          aiLastEncounterSummary = parsedChanges.last_encounter_summary;
+          console.log('[PreChartWorker] Extracted AI-generated last encounter summary:', aiLastEncounterSummary?.substring(0, 100));
+        }
+
+        // Extract interval_history
         if (parsedChanges.interval_history) {
           intervalHistoryText = parsedChanges.interval_history;
           console.log('[PreChartWorker] Extracted interval history from AI:', intervalHistoryText);
@@ -846,7 +976,7 @@ export async function generatePreChartNoteForPatient(patientId: string, appointm
           console.warn('[PreChartWorker] Available fields:', Object.keys(parsedChanges).join(', '));
         }
       } catch (err) {
-        console.warn('[PreChartWorker] Could not parse changes field for interval history:', err);
+        console.warn('[PreChartWorker] Could not parse changes field:', err);
         console.warn('[PreChartWorker] Raw changes payload preview:', changes.substring(0, 200));
       }
     } else {
@@ -854,6 +984,7 @@ export async function generatePreChartNoteForPatient(patientId: string, appointm
     }
 
     console.log('[PreChartWorker] Final interval history text:', intervalHistoryText);
+    console.log('[PreChartWorker] Final last encounter summary:', aiLastEncounterSummary ? 'AI-generated' : (lastEncounterDoc ? 'From encounter doc' : 'None'));
     console.log('[PreChartWorker] ==========================================');
 
     // Build structured JSON for frontend parsing
@@ -972,10 +1103,16 @@ export async function generatePreChartNoteForPatient(patientId: string, appointm
         overdueItems: [],
         careGaps: [],
       },
-      lastEncounterSummary: context.past_notes?.[0] ? {
-        date: context.past_notes[0].recorded_at || undefined,
-        summary: context.past_notes[0].note,
-        provider: context.past_notes[0].entered_by || undefined,
+      // Priority: 1) AI-summarized transcript, 2) Encounter document summary, 3) null (first visit)
+      lastEncounterSummary: aiLastEncounterSummary ? {
+        date: lastEncounterTranscript?.date || undefined,
+        summary: aiLastEncounterSummary,
+        provider: lastEncounterTranscript?.provider || undefined,
+        keyTakeaways: [],
+      } : lastEncounterDoc ? {
+        date: lastEncounterDoc.date,
+        summary: lastEncounterDoc.summary,
+        provider: lastEncounterDoc.provider,
         keyTakeaways: [],
       } : null,
       suggestedActions: [],

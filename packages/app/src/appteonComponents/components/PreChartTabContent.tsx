@@ -244,7 +244,20 @@ export function PreChartTabContent({
             return !isValidJsonString(summary);
           };
 
-          // Use ONLY the most recent transcript summary. Discard any other sources.
+          // Priority 1: Use lastEncounterSummary from the pre-chart data itself (already populated by backend)
+          if (preChartData.lastEncounterSummary && isValidSummary(preChartData.lastEncounterSummary.summary)) {
+            return (
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  {preChartData.lastEncounterSummary.date && <span>{formatDateForChart(preChartData.lastEncounterSummary.date)}</span>}
+                  {preChartData.lastEncounterSummary.provider && <span>Provider: {preChartData.lastEncounterSummary.provider}</span>}
+                </div>
+                <p className="text-justify">{preChartData.lastEncounterSummary.summary}</p>
+              </div>
+            );
+          }
+
+          // Priority 2: Fall back to transcript summary from API (for legacy compatibility)
           const fb = getLastTranscriptSummary();
           if (fb && fb.summary && isValidSummary(fb.summary)) {
             return (
