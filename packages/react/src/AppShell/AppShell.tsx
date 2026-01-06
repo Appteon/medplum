@@ -4,7 +4,7 @@ import type { AppShellHeaderConfiguration, AppShellNavbarConfiguration } from '@
 import { AppShell as MantineAppShell } from '@mantine/core';
 import { useMedplum, useMedplumProfile } from '@medplum/react-hooks';
 import type { JSX, ReactNode } from 'react';
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { ErrorBoundary } from '../ErrorBoundary/ErrorBoundary';
 import { Loading } from '../Loading/Loading';
 import classes from './AppShell.module.css';
@@ -54,7 +54,20 @@ export function AppShell(props: AppShellProps): JSX.Element {
     return <Loading />;
   }
 
-  const isRootPath = props.pathname === '/' || props.pathname === '';
+  const hideNavbarPaths = new Set(['/', '/review', '/appointments', '/appointments/upload']);
+  const collapsePaths = hideNavbarPaths;
+  const currentPath = props.pathname ?? '';
+  const isRootPath = currentPath === '/' || currentPath === '';
+  const shouldAutoCollapse = collapsePaths.has(currentPath) || currentPath === '';
+  const shouldHideNavbar = hideNavbarPaths.has(currentPath) || currentPath === '';
+
+  // Auto-collapse medplum navbar on targeted pages while still allowing user toggling afterwards
+  useEffect(() => {
+    if (shouldAutoCollapse) {
+      setNavbarOpenWrapper(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPath]);
 
   let headerProp: AppShellHeaderConfiguration | undefined;
   let navbarProp: AppShellNavbarConfiguration | undefined;
@@ -98,11 +111,12 @@ export function AppShell(props: AppShellProps): JSX.Element {
       width: OPEN_WIDTH,
       breakpoint: 'sm',
       collapsed: {
-        desktop: !profile || !navbarOpen || isRootPath,
-        mobile: !profile || !navbarOpen || isRootPath,
+        desktop: true,
+        mobile: true,
       },
     };
-    headerComponent = profile && (
+    // Always render the header so it's visible on non-auth pages too
+    headerComponent = (
       <Header
         pathname={props.pathname}
         searchParams={props.searchParams}
@@ -110,12 +124,12 @@ export function AppShell(props: AppShellProps): JSX.Element {
         logo={props.logo}
         version={props.version}
         navbarOpen={navbarOpen}
-        navbarToggle={toggleNavbar}
+        navbarToggle={shouldHideNavbar ? () => undefined : toggleNavbar}
         notifications={props.notifications}
       />
     );
     navbarComponent =
-      profile && navbarOpen && !isRootPath ? (
+      !shouldHideNavbar && profile && navbarOpen ? (
         <Navbar
           pathname={props.pathname}
           searchParams={props.searchParams}

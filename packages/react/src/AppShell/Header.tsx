@@ -3,7 +3,7 @@
 import { Group, AppShell as MantineAppShell, Menu, Text, UnstyledButton } from '@mantine/core';
 import { formatHumanName } from '@medplum/core';
 import type { HumanName } from '@medplum/fhirtypes';
-import { useMedplumProfile } from '@medplum/react-hooks';
+import { useMedplumNavigate, useMedplumProfile } from '@medplum/react-hooks';
 import { IconChevronDown } from '@tabler/icons-react';
 import type { JSX, ReactNode } from 'react';
 import { useState } from 'react';
@@ -24,19 +24,30 @@ export interface HeaderProps {
 
 export function Header(props: HeaderProps): JSX.Element {
   const profile = useMedplumProfile();
+  const navigate = useMedplumNavigate();
   const [userMenuOpened, setUserMenuOpened] = useState(false);
 
-  const isRootPath = props.pathname === '/' || props.pathname === '';
+  const showAppteonLogo = ['/', '/review', '/appointments', '/appointments/upload'].includes(
+    props.pathname ?? ''
+  );
 
   return (
     <MantineAppShell.Header style={{ zIndex: 101, backgroundColor: '#f8f9fa', display: 'flex', alignItems: 'center' }}>
       <Group justify="space-between" align="center" style={{ width: '100%' }} h="100%">
-        {isRootPath ? (
-          <img
-            src="/img/AppteonLogo.png"
-            alt="Appteon Logo"
-            style={{ height: '40px', width: 'auto', display: 'block', marginLeft: '16px' }}
-          />
+        {showAppteonLogo ? (
+          <UnstyledButton
+            className={classes.logoButton}
+            aria-expanded={props.navbarOpen}
+            aria-controls="navbar"
+            onClick={() => navigate('/')}
+            style={{ display: 'flex', alignItems: 'center', height: '40px' }}
+          >
+            <img
+              src="/img/AppteonLogo.png"
+              alt="Appteon Logo"
+              style={{ height: '40px', width: 'auto', display: 'block', marginLeft: '16px' }}
+            />
+          </UnstyledButton>
         ) : (
           <UnstyledButton
             className={classes.logoButton}

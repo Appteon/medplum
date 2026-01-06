@@ -1,7 +1,8 @@
 'use client';
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { ChevronLeft, ChevronRight, RefreshCw, Search, X, Users, Menu, Calendar, CalendarDays, CalendarRange } from 'lucide-react';
+import { ChevronLeft, ChevronRight, RefreshCw, Search, X, Users, Menu, Calendar, CalendarDays, CalendarRange, Home } from 'lucide-react';
 import { useMedplum } from '@medplum/react';
+import { useNavigate } from 'react-router';
 import type { Patient as FHIRPatient } from '@medplum/fhirtypes';
 
 interface MedplumPatientSidebarProps {
@@ -14,6 +15,7 @@ interface MedplumPatientSidebarProps {
   showRefreshButton?: boolean;
   onRefresh?: () => Promise<void> | void;
   initialSelectedPatientId?: string | null;
+  showBackButton?: boolean;
 }
 
 function useDebouncedValue<T>(value: T, ms = 250) {
@@ -70,8 +72,10 @@ export function MedplumPatientSidebar({
   showRefreshButton = false,
   onRefresh,
   initialSelectedPatientId = null,
+  showBackButton = false,
 }: MedplumPatientSidebarProps) {
   const medplum = useMedplum();
+  const navigate = useNavigate();
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(initialSelectedPatientId);
   const [currentPage, setCurrentPage] = useState(1);
   const [activeFilter, setActiveFilter] = useState<'all' | 'today' | 'tomorrow' | 'thisWeek'>('all');
@@ -325,6 +329,16 @@ export function MedplumPatientSidebar({
 
   return (
     <div className={`pb-0 shadow-sm border-r border-transparent transition-all duration-300 flex flex-col relative ${isSidebarCollapsed ? 'w-20 h-full' : 'w-96 h-full'} bg-[#071428] text-white overflow-hidden overflow-x-hidden min-h-0`}>
+      {showBackButton && !isSidebarCollapsed && (
+        <button
+          onClick={() => navigate('/')?.catch(console.error)}
+          className="absolute top-5 left-2 w-9 h-9 bg-[#0e2130] border border-transparent rounded-lg hover:bg-[#122834] transition-all duration-200 flex items-center justify-center z-10 shadow-sm"
+          title="Back to Home"
+        >
+          <Home className="h-4 w-4 text-gray-300" />
+        </button>
+      )}
+
       {showRefreshButton && (
         <button
           onClick={refresh}
@@ -335,7 +349,7 @@ export function MedplumPatientSidebar({
           <RefreshCw className={`h-4 w-4 text-gray-600 ${isRefreshing ? 'animate-spin' : ''}`} />
         </button>
       )}
-      
+
       <button
         onClick={toggleSidebar}
         className={`absolute top-5 ${isSidebarCollapsed ? 'left-0 right-0 mx-auto' : 'right-2'} w-9 h-9 bg-[#082532] border border-transparent rounded-lg hover:bg-[#123a4a] transition-all duration-200 flex items-center justify-center z-10 shadow-sm`}

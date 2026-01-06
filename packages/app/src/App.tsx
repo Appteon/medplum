@@ -38,6 +38,9 @@ export function App(): JSX.Element {
     return <Loading />;
   }
 
+  // Always render AppShell so the top sticky header is present,
+  // including on landing, review, upload, and appointments pages.
+
   return (
     <AppShell
       logo={<Logo size={24} />}

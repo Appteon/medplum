@@ -4,7 +4,7 @@ import { Title } from '@mantine/core';
 import { getAppName, Logo, SignInForm, useMedplum, useMedplumProfile } from '@medplum/react';
 import type { JSX } from 'react';
 import { useNavigate } from 'react-router';
-import { getConfig, isRegisterEnabled } from './utils/config';
+import { getConfig, isRegisterEnabled } from '../../utils/config';
 import {
   IconCalendar,
   IconUpload,
@@ -58,7 +58,7 @@ function isFrontDesk(profile: any, accessPolicyName?: string): boolean {
   return false;
 }
 
-export function RootPage(): JSX.Element {
+export function PortalLandingPage(): JSX.Element {
   const profile = useMedplumProfile();
   const medplum = useMedplum();
   const navigate = useNavigate();
@@ -69,7 +69,7 @@ export function RootPage(): JSX.Element {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <SignInForm
-          onSuccess={() => navigate('/')?.catch(console.error)}
+          onSuccess={() => navigate('/portal')?.catch(console.error)}
           onForgotPassword={() => navigate('/resetpassword')?.catch(console.error)}
           onRegister={isRegisterEnabled() ? () => navigate('/register')?.catch(console.error) : undefined}
           googleClientId={config.googleClientId}
@@ -97,21 +97,21 @@ export function RootPage(): JSX.Element {
       icon: <IconCalendar size={28} className="text-white" />,
       title: 'View Appointments',
       description: 'View and manage patient appointments',
-      href: '/appointments',
+      href: '/portal/appointments',
       color: 'bg-blue-500',
     },
     {
       icon: <IconUpload size={28} className="text-white" />,
       title: 'Upload Appointments',
       description: 'Upload appointment data from TSV files',
-      href: '/appointments/upload',
+      href: '/portal/appointments/upload',
       color: 'bg-green-500',
     },
     {
       icon: <IconStethoscope size={28} className="text-white" />,
       title: 'Clinical Review',
       description: 'Review clinical notes and patient records',
-      href: '/review',
+      href: '/',
       color: 'bg-purple-500',
     },
   ];
@@ -122,14 +122,14 @@ export function RootPage(): JSX.Element {
       icon: <IconCalendar size={28} className="text-white" />,
       title: 'View Appointments',
       description: 'View and manage patient appointments',
-      href: '/appointments',
+      href: '/portal/appointments',
       color: 'bg-blue-500',
     },
     {
       icon: <IconUpload size={28} className="text-white" />,
       title: 'Upload Appointments',
       description: 'Upload appointment data from TSV files',
-      href: '/appointments/upload',
+      href: '/portal/appointments/upload',
       color: 'bg-green-500',
     },
   ];

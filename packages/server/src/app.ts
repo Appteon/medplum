@@ -58,6 +58,7 @@ import { wellKnownRouter } from './wellknown';
 import { closeWorkers, initWorkers } from './workers';
 import { medAiMedplumRouter } from './integrations/medai/medplum/index.js';
 import { medAiSonioxRouter } from './integrations/medai/soniox/index.js';
+import { appointmentRouter } from './integrations/appointments/index.js';
 import { initializePreChartScheduler, shutdownPreChartScheduler } from './integrations/medai/medplum/services/preChartScheduler.js';
 import { initializePfSyncScheduler, shutdownPfSyncScheduler } from './integrations/ehr-fetch/index.js';
 
@@ -233,6 +234,7 @@ export async function initApp(app: Express, config: MedplumServerConfig): Promis
   // Custom integrations
   apiRouter.use('/medai/medplum/', medAiMedplumRouter);
   apiRouter.use('/medai/soniox/', medAiSonioxRouter);
+  apiRouter.use('/integrations/appointments/', appointmentRouter);
 
   if (config.mcpEnabled) {
     apiRouter.use('/mcp', mcpRouter);

@@ -63,6 +63,9 @@ import { ResourceVersionPage } from './resource/ResourceVersionPage';
 import { SubscriptionsPage } from './resource/SubscriptionsPage';
 import { TimelinePage } from './resource/TimelinePage';
 import { ToolsPage } from './resource/ToolsPage';
+import { ViewAppointmentsPage } from './pages/portal/ViewAppointmentsPage';
+import { UploadAppointmentsPage } from './pages/portal/UploadAppointmentsPage';
+import { ReviewPage } from './pages/review/ReviewPage';
 
 export function AppRoutes(): JSX.Element {
   return (
@@ -101,6 +104,9 @@ export function AppRoutes(): JSX.Element {
         </Route>
         <Route path="/lab/assays" element={<AssaysPage />} />
         <Route path="/lab/panels" element={<PanelsPage />} />
+        <Route path="/review" element={<ReviewPage />} />
+        <Route path="/appointments" element={<ViewAppointmentsPage />} />
+        <Route path="/appointments/upload" element={<UploadAppointmentsPage />} />
         <Route path="/:resourceType/new" element={<CreateResourcePage />}>
           <Route index element={<FormCreatePage />} />
           <Route path="form" element={<FormCreatePage />} />
