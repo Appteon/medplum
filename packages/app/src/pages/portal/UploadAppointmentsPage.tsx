@@ -119,13 +119,8 @@ export function UploadAppointmentsPage(): JSX.Element {
           {/* File Format Info */}
           <Alert icon={<IconAlertCircle size={16} />} title="File Format" color="blue" mb="lg">
             <Text size="sm">
-              Upload a TSV (Tab-Separated Values) file with the following columns:
+              Upload a TSV (Tab-Separated Values) file downloaded from Practice Fusion.
             </Text>
-            <List size="sm" mt="xs">
-              <List.Item>PatientPracticeGuid, AppointmentGuid, ProviderGuid, FacilityGuid</List.Item>
-              <List.Item>StartDateTime, EndDateTime, AppointmentStatus, AppointmentType</List.Item>
-              <List.Item>ChiefComplaint, RoomLocation, InsuranceCoverageType</List.Item>
-            </List>
           </Alert>
 
           {/* Dropzone */}
