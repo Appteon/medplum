@@ -57,7 +57,6 @@ export function AppShell(props: AppShellProps): JSX.Element {
   const hideNavbarPaths = new Set(['/', '/review', '/appointments', '/appointments/upload']);
   const collapsePaths = hideNavbarPaths;
   const currentPath = props.pathname ?? '';
-  const isRootPath = currentPath === '/' || currentPath === '';
   const shouldAutoCollapse = collapsePaths.has(currentPath) || currentPath === '';
   const shouldHideNavbar = hideNavbarPaths.has(currentPath) || currentPath === '';
 
@@ -83,12 +82,12 @@ export function AppShell(props: AppShellProps): JSX.Element {
       width: navbarOpen ? OPEN_WIDTH : CLOSED_WIDTH,
       breakpoint: 0,
       collapsed: {
-        desktop: !profile || isRootPath,
-        mobile: !profile || isRootPath,
+        desktop: !profile || shouldHideNavbar || !navbarOpen,
+        mobile: !profile || shouldHideNavbar || !navbarOpen,
       },
     };
     headerComponent = undefined;
-    navbarComponent = profile && !isRootPath ? (
+    navbarComponent = profile && !shouldHideNavbar ? (
       <Navbar
         logo={props.logo}
         pathname={props.pathname}
@@ -111,8 +110,8 @@ export function AppShell(props: AppShellProps): JSX.Element {
       width: OPEN_WIDTH,
       breakpoint: 'sm',
       collapsed: {
-        desktop: true,
-        mobile: true,
+        desktop: !profile || !navbarOpen || shouldHideNavbar,
+        mobile: !profile || !navbarOpen || shouldHideNavbar,
       },
     };
     // Always render the header so it's visible on non-auth pages too

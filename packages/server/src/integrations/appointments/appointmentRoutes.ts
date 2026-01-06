@@ -149,7 +149,6 @@ function tsvToFHIRAppointment(tsv: TSVAppointment): Appointment {
       {
         actor: {
           reference: `Patient/${tsv.PatientPracticeGuid}`,
-          display: `Patient ${tsv.PatientPracticeGuid.substring(0, 8)}`,
         },
         status: 'accepted',
         required: 'required',
@@ -157,7 +156,6 @@ function tsvToFHIRAppointment(tsv: TSVAppointment): Appointment {
       {
         actor: {
           reference: `Practitioner/${tsv.ProviderGuid}`,
-          display: `Provider ${tsv.ProviderGuid.substring(0, 8)}`,
         },
         status: 'accepted',
         required: 'required',
@@ -286,6 +284,18 @@ appointmentRouter.post('/upload', async (req, res): Promise<void> => {
     for (let i = 0; i < tsvAppointments.length; i++) {
       const tsvAppointment = tsvAppointments[i];
       try {
+        // Validate referenced resources exist before constructing appointment
+        try {
+          await repo.readResource('Patient', tsvAppointment.PatientPracticeGuid);
+        } catch {
+          throw new Error(`Patient not found: ${tsvAppointment.PatientPracticeGuid}`);
+        }
+        try {
+          await repo.readResource('Practitioner', tsvAppointment.ProviderGuid);
+        } catch {
+          throw new Error(`Practitioner not found: ${tsvAppointment.ProviderGuid}`);
+        }
+
         const fhirAppointment = tsvToFHIRAppointment(tsvAppointment);
 
         // Add project metadata

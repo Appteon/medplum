@@ -156,22 +156,6 @@ export function RootPage(): JSX.Element {
             <Tile key={index} {...tile} />
           ))}
         </div>
-
-        {/* Quick Stats */}
-        <div className="mt-12 grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="emr-card p-6">
-            <div className="text-2xl font-bold text-foreground">--</div>
-            <div className="text-sm text-muted-foreground">Today's Appointments</div>
-          </div>
-          <div className="emr-card p-6">
-            <div className="text-2xl font-bold text-foreground">--</div>
-            <div className="text-sm text-muted-foreground">Pending Reviews</div>
-          </div>
-          <div className="emr-card p-6">
-            <div className="text-2xl font-bold text-foreground">--</div>
-            <div className="text-sm text-muted-foreground">Uploaded This Week</div>
-          </div>
-        </div>
       </div>
     </div>
   );

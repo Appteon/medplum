@@ -7,9 +7,26 @@ import { useMedplum, useMedplumProfile } from '@medplum/react';
 import { MedplumPatientSidebar } from '../../appteonComponents/MedplumPatientSidebar';
 import { MedplumPatientDetail } from '../../appteonComponents/MedplumPatientDetail';
 
+function appointmentHasPractitioner(appointment: any, profile: any): boolean {
+  const refs = (appointment?.participant ?? []).map((p: any) => p?.actor?.reference).filter(Boolean);
+  if (profile?.resourceType === 'Practitioner' && profile.id) {
+    return refs.includes(`Practitioner/${profile.id}`);
+  }
+  if (profile?.resourceType === 'PractitionerRole' && profile.id) {
+    const roleRef = `PractitionerRole/${profile.id}`;
+    const practitionerRef = profile.practitioner?.reference;
+    return refs.includes(roleRef) || (practitionerRef ? refs.includes(practitionerRef) : false);
+  }
+  return true;
+}
+
 export function ReviewPage(): JSX.Element {
   const profile = useMedplumProfile();
   const medplum = useMedplum();
+
+  const isPractitioner = profile?.resourceType === 'Practitioner';
+  const isPractitionerRole = (profile as any)?.resourceType === 'PractitionerRole';
+  const roleProfile = profile as any;
 
   // State for patients and sidebar
   const [patients, setPatients] = useState<Patient[]>([]);
@@ -26,17 +43,55 @@ export function ReviewPage(): JSX.Element {
     const fetchPatients = async (): Promise<void> => {
       setIsLoadingPatients(true);
       try {
-        // Search for all patients, sorted by last updated
-        const patientResources = await medplum.searchResources(
-          'Patient',
-          '_sort=-_lastUpdated&_count=100'
-        );
+        // If signed in as a doctor, only show that doctor's patients (derived from appointments)
+        if ((isPractitioner || isPractitionerRole) && profile?.id) {
+          const actors: string[] = [];
+          if (isPractitioner && profile.id) {
+            actors.push(`Practitioner/${profile.id}`);
+          }
+          if (isPractitionerRole && profile.id) {
+            actors.push(`PractitionerRole/${profile.id}`);
+            if (roleProfile?.practitioner?.reference) {
+              actors.push(roleProfile.practitioner.reference);
+            }
+          }
 
-        setPatients(patientResources);
+          const appts = await medplum.searchResources('Appointment', {
+            actor: actors.join(','),
+            _count: '1000',
+            _sort: '-date',
+          });
 
-        // Auto-select first patient if available
-        if (patientResources.length > 0 && !selectedPatientId) {
-          setSelectedPatientId(patientResources[0].id ?? null);
+          const ownAppts = appts.filter((apt: any) => appointmentHasPractitioner(apt, profile));
+
+          const patientIds = Array.from(
+            new Set(
+              ownAppts
+                .map((apt: any) => apt?.participant)
+                .flat()
+                .map((p: any) => p?.actor?.reference)
+                .filter((ref: any) => typeof ref === 'string' && ref.startsWith('Patient/'))
+                .map((ref: string) => ref.split('/')[1])
+                .filter(Boolean)
+            )
+          );
+
+          const patientResources = patientIds.length
+            ? await medplum.searchResources('Patient', { _id: patientIds.join(',') })
+            : [];
+
+          setPatients(patientResources);
+
+          if (patientResources.length > 0 && !selectedPatientId) {
+            setSelectedPatientId(patientResources[0].id ?? null);
+          }
+        } else {
+          // Default: Search all patients, sorted by last updated
+          const patientResources = await medplum.searchResources('Patient', '_sort=-_lastUpdated&_count=100');
+          setPatients(patientResources);
+          if (patientResources.length > 0 && !selectedPatientId) {
+            setSelectedPatientId(patientResources[0].id ?? null);
+          }
         }
       } catch (error) {
         console.error('Failed to fetch patients:', error);
@@ -55,7 +110,7 @@ export function ReviewPage(): JSX.Element {
 
   // Show the patient sidebar and detail
   return (
-    <div className="flex h-screen w-full overflow-hidden">
+    <div className="flex h-[calc(100vh-60px)] w-full overflow-hidden">
       <MedplumPatientSidebar
         patients={patients}
         onPatientSelect={setSelectedPatientId}
