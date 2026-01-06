@@ -25,7 +25,7 @@ export const FRONT_DESK_ACCESS_POLICY: Omit<AccessPolicy, 'id'> = {
   resource: [
     {
       resourceType: 'Appointment',
-      // Full access to appointments
+      // Full access to appointments - can search, read, create, and update
     },
     {
       resourceType: 'Patient',

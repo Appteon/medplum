@@ -58,6 +58,20 @@ function getPractitionerRef(appointment: Appointment): string | undefined {
   return appointment.participant?.find((p) => p.actor?.reference?.startsWith('Practitioner/'))?.actor?.reference;
 }
 
+function isFrontDesk(profile: any, accessPolicyName?: string): boolean {
+  if (accessPolicyName?.toLowerCase().includes('front desk') || accessPolicyName?.toLowerCase().includes('frontdesk')) {
+    return true;
+  }
+  if (profile?.identifier) {
+    for (const id of profile.identifier) {
+      if (id.system === 'role' && id.value === 'front-desk') {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 function appointmentHasPractitioner(appointment: Appointment, profile: any): boolean {
   const refs = appointment.participant?.map((p) => p.actor?.reference).filter(Boolean) ?? [];
   if (profile?.resourceType === 'Practitioner' && profile.id) {
@@ -105,6 +119,21 @@ export function ViewAppointmentsPage(): JSX.Element {
   const [page, setPage] = useState(1);
   const pageSize = 50;
 
+  const accessPolicyName = medplum.getAccessPolicy()?.name;
+  const isFrontDeskUser = isFrontDesk(profile, accessPolicyName);
+
+  // Debug logging
+  console.log('ViewAppointmentsPage - Debug Info:', {
+    profileResourceType: profile?.resourceType,
+    profileId: profile?.id,
+    profileIdentifiers: profile?.identifier,
+    accessPolicy: medplum.getAccessPolicy(),
+    accessPolicyName,
+    isFrontDeskUser,
+    isPractitioner,
+    isPractitionerRole,
+  });
+
   const getTodayDateString = (): string => {
     const d = new Date();
     const year = d.getFullYear();
@@ -128,8 +157,8 @@ export function ViewAppointmentsPage(): JSX.Element {
         _sort: 'date',
         _count: '500',
       };
-      // If signed in as a doctor, only show their appointments (practitioner or practitioner role)
-      if ((isPractitioner || isPractitionerRole) && profile?.id) {
+      // If signed in as a doctor, only show their appointments (unless front desk)
+      if (!isFrontDeskUser && (isPractitioner || isPractitionerRole) && profile?.id) {
         const actors: string[] = [];
         if (isPractitioner && profile.id) {
           actors.push(`Practitioner/${profile.id}`);
@@ -144,7 +173,9 @@ export function ViewAppointmentsPage(): JSX.Element {
           searchParams.actor = actors.join(',');
         }
       }
+      console.log('Fetching appointments with params:', searchParams);
       const results = await medplum.searchResources('Appointment', searchParams);
+      console.log('Appointments fetched:', results.length, 'appointments');
       setAppointments(results);
       // Prefetch and cache patient/practitioner display names
       await prefetchNames(results);
@@ -218,7 +249,7 @@ export function ViewAppointmentsPage(): JSX.Element {
       return false;
     }
     // Ensure appointment belongs to signed-in practitioner/role
-    if ((isPractitioner || isPractitionerRole) && !appointmentHasPractitioner(apt, profile)) {
+    if (!isFrontDeskUser && (isPractitioner || isPractitionerRole) && !appointmentHasPractitioner(apt, profile)) {
       return false;
     }
     // Status filter
@@ -240,6 +271,12 @@ export function ViewAppointmentsPage(): JSX.Element {
       );
     }
     return true;
+  });
+
+  console.log('Filtered appointments:', {
+    totalAppointments: appointments.length,
+    filteredCount: filteredAppointments.length,
+    startToday,
   });
 
   // Sort ascending by start time (today first, then future)

@@ -7,6 +7,20 @@ import { useMedplum, useMedplumProfile } from '@medplum/react';
 import { MedplumPatientSidebar } from '../../appteonComponents/MedplumPatientSidebar';
 import { MedplumPatientDetail } from '../../appteonComponents/MedplumPatientDetail';
 
+function isFrontDesk(profile: any, accessPolicyName?: string): boolean {
+  if (accessPolicyName?.toLowerCase().includes('front desk') || accessPolicyName?.toLowerCase().includes('frontdesk')) {
+    return true;
+  }
+  if (profile?.identifier) {
+    for (const id of profile.identifier) {
+      if (id.system === 'role' && id.value === 'front-desk') {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 function appointmentHasPractitioner(appointment: any, profile: any): boolean {
   const refs = (appointment?.participant ?? []).map((p: any) => p?.actor?.reference).filter(Boolean);
   if (profile?.resourceType === 'Practitioner' && profile.id) {
@@ -27,6 +41,8 @@ export function ReviewPage(): JSX.Element {
   const isPractitioner = profile?.resourceType === 'Practitioner';
   const isPractitionerRole = (profile as any)?.resourceType === 'PractitionerRole';
   const roleProfile = profile as any;
+  const accessPolicyName = medplum.getAccessPolicy()?.name;
+  const isFrontDeskUser = isFrontDesk(profile, accessPolicyName);
 
   // State for patients and sidebar
   const [patients, setPatients] = useState<Patient[]>([]);
@@ -44,7 +60,7 @@ export function ReviewPage(): JSX.Element {
       setIsLoadingPatients(true);
       try {
         // If signed in as a doctor, only show that doctor's patients (derived from appointments)
-        if ((isPractitioner || isPractitionerRole) && profile?.id) {
+        if (!isFrontDeskUser && (isPractitioner || isPractitionerRole) && profile?.id) {
           const actors: string[] = [];
           if (isPractitioner && profile.id) {
             actors.push(`Practitioner/${profile.id}`);
@@ -85,8 +101,10 @@ export function ReviewPage(): JSX.Element {
           if (patientResources.length > 0 && !selectedPatientId) {
             setSelectedPatientId(patientResources[0].id ?? null);
           }
-        } else {
-          // Default: Search all patients, sorted by last updated
+        }
+
+        // Default or front desk: Search all patients, sorted by last updated
+        if (isFrontDeskUser || !(isPractitioner || isPractitionerRole)) {
           const patientResources = await medplum.searchResources('Patient', '_sort=-_lastUpdated&_count=100');
           setPatients(patientResources);
           if (patientResources.length > 0 && !selectedPatientId) {
@@ -119,7 +137,6 @@ export function ReviewPage(): JSX.Element {
         toggleSidebar={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
         sidebarTitle="Patients"
         initialSelectedPatientId={selectedPatientId}
-        showBackButton={true}
       />
       <div className="flex-1 overflow-auto">
         <MedplumPatientDetail selectedPatientId={selectedPatientId} />

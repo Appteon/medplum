@@ -4,7 +4,7 @@ import { Group, AppShell as MantineAppShell, Menu, Text, UnstyledButton } from '
 import { formatHumanName } from '@medplum/core';
 import type { HumanName } from '@medplum/fhirtypes';
 import { useMedplumNavigate, useMedplumProfile } from '@medplum/react-hooks';
-import { IconChevronDown } from '@tabler/icons-react';
+import { IconChevronDown, IconHome } from '@tabler/icons-react';
 import type { JSX, ReactNode } from 'react';
 import { useState } from 'react';
 import { ResourceAvatar } from '../ResourceAvatar/ResourceAvatar';
@@ -64,6 +64,15 @@ export function Header(props: HeaderProps): JSX.Element {
         </Text>
         <Group gap="lg" align="center">
           {props.notifications}
+          <UnstyledButton
+            className={classes.homeButton}
+            aria-label="Home"
+            onClick={() => navigate('/')}
+            title="Home"
+            style={{ display: 'flex', alignItems: 'center', height: '40px', padding: '8px 12px', borderRadius: '8px' }}
+          >
+            <IconHome size={20} stroke={1.5} />
+          </UnstyledButton>
           <Menu
             width={260}
             shadow="xl"

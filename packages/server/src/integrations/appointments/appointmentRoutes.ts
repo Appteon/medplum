@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { Router } from 'express';
-import type { Appointment, CodeableConcept } from '@medplum/fhirtypes';
+import type { AccessPolicy, Appointment, CodeableConcept, ProjectMembership, User } from '@medplum/fhirtypes';
 import { AuthenticatedRequestContext, getRequestContext } from '../../context.js';
 import { requestContextStore } from '../../request-context-store.js';
 import { getSystemRepo } from '../../fhir/repo.js';
@@ -394,6 +394,178 @@ appointmentRouter.post('/seed-rbac', async (req, res): Promise<void> => {
     });
   } catch (err: any) {
     console.error('Error seeding RBAC:', err);
+    res.status(500).json({ ok: false, error: err?.message ?? 'Server error' });
+  }
+});
+
+// POST /integrations/appointments/update-access-policy - Delete and recreate Front Desk Access Policy
+appointmentRouter.post('/update-access-policy', async (req, res): Promise<void> => {
+  try {
+    // Hardcoded policy to ensure no criteria is applied
+    const FRONT_DESK_ACCESS_POLICY: Omit<AccessPolicy, 'id'> = {
+      resourceType: 'AccessPolicy',
+      name: 'Front Desk Access Policy',
+      resource: [
+        {
+          resourceType: 'Appointment',
+          // Full access to appointments - can search, read, create, and update
+        },
+        {
+          resourceType: 'Patient',
+          readonly: true,
+          // Only read access to patients
+        },
+        {
+          resourceType: 'Practitioner',
+          readonly: true,
+          // Only read access to practitioners
+        },
+        {
+          resourceType: 'Location',
+          readonly: true,
+        },
+        {
+          resourceType: 'Schedule',
+          readonly: true,
+        },
+        {
+          resourceType: 'Slot',
+          readonly: true,
+        },
+      ],
+    };
+
+    await requestContextStore.run(AuthenticatedRequestContext.system(), async () => {
+      const systemRepo = getSystemRepo();
+
+      // Find the Front Desk Access Policy
+      const policies = await systemRepo.searchResources<AccessPolicy>({
+        resourceType: 'AccessPolicy',
+        name: 'Front Desk Access Policy',
+      });
+
+      if (policies.length > 0) {
+        // Delete ALL old policies
+        for (const policy of policies) {
+           await systemRepo.deleteResource('AccessPolicy', policy.id as string);
+           console.log('Deleted old Front Desk Access Policy:', policy.id);
+        }
+      }
+
+      // Use the Configured Target Project ID if available (Env: EHR_TARGET_PROJECT_ID)
+      // Otherwise use the first project found
+      let projectId: string | undefined = process.env.EHR_TARGET_PROJECT_ID;
+      
+      if (!projectId) {
+          console.log('EHR_TARGET_PROJECT_ID not set, falling back to existing project search');
+          if (policies.length > 0 && policies[0].meta?.project) {
+            projectId = policies[0].meta.project;
+          } else {
+            const projects = await systemRepo.searchResources({ resourceType: 'Project' });
+            // sort by creation? or just pick non-default?
+            // Picking the one that looks like "HealthAI" if possible, or just the first one.
+            const p = projects.find((pro: any) => pro.name === 'HealthAI') || (projects as any)[0];
+            projectId = p?.id;
+          }
+      }
+      
+      console.log('Creating Front Desk Access Policy in Project:', projectId);
+
+      if (!projectId) {
+        throw new Error('No project found to assign policy to');
+      }
+
+      // Create a new one with clean data
+      const newPolicy = await systemRepo.createResource<AccessPolicy>({
+        ...FRONT_DESK_ACCESS_POLICY,
+        meta: {
+          project: projectId,
+        },
+      });
+
+      console.log('Created new Front Desk Access Policy:', newPolicy.id);
+    });
+
+    res.json({
+      ok: true,
+      message: 'Front Desk Access Policy recreated successfully',
+    });
+  } catch (err: any) {
+    console.error('Error recreating Access Policy:', err);
+    res.status(500).json({ ok: false, error: err?.message ?? 'Server error' });
+  }
+});
+
+// POST /integrations/appointments/fix-front-desk-membership - Fix ProjectMembership to use new AccessPolicy
+appointmentRouter.post('/fix-front-desk-membership', async (req, res): Promise<void> => {
+  try {
+    await requestContextStore.run(AuthenticatedRequestContext.system(), async () => {
+      const systemRepo = getSystemRepo();
+
+      // Find the front desk user
+      const userBundle = await systemRepo.search({
+        resourceType: 'User',
+        filters: [{ code: 'email', operator: 'eq', value: 'frontdesk@example.com' }],
+      });
+
+      if (!userBundle.entry || userBundle.entry.length === 0) {
+        throw new Error('Front desk user not found');
+      }
+
+      const user = userBundle.entry[0].resource as User;
+
+      // Find the new Front Desk Access Policy
+      const policyBundle = await systemRepo.search({
+        resourceType: 'AccessPolicy',
+        filters: [{ code: 'name', operator: 'eq', value: 'Front Desk Access Policy' }],
+      });
+
+      if (!policyBundle.entry || policyBundle.entry.length === 0) {
+        throw new Error('Front Desk Access Policy not found');
+      }
+
+      const newPolicy = policyBundle.entry[0].resource as AccessPolicy;
+
+      // Find the ProjectMembership for the front desk user
+      const membershipBundle = await systemRepo.search({
+        resourceType: 'ProjectMembership',
+        filters: [{ code: 'user', operator: 'eq', value: `User/${user.id}` }],
+      });
+
+      if (!membershipBundle.entry || membershipBundle.entry.length === 0) {
+        throw new Error('ProjectMembership not found for front desk user');
+      }
+
+      const membership = membershipBundle.entry[0].resource as ProjectMembership;
+      
+      const targetProjectId = process.env.EHR_TARGET_PROJECT_ID || newPolicy.meta?.project;
+
+      // Update the membership to point to the new policy AND ensure correct project
+      const updatedMembership: ProjectMembership = {
+        ...membership,
+        accessPolicy: {
+          reference: `AccessPolicy/${newPolicy.id}`,
+          display: newPolicy.name,
+        },
+      };
+      
+      if (targetProjectId && updatedMembership.project?.reference !== `Project/${targetProjectId}`) {
+          console.log(`Updating Membership Project from ${updatedMembership.project?.reference} to Project/${targetProjectId}`);
+          updatedMembership.project = {
+              reference: `Project/${targetProjectId}`
+          };
+      }
+
+      await systemRepo.updateResource(updatedMembership);
+      console.log('Updated ProjectMembership to use new AccessPolicy:', newPolicy.id);
+    });
+
+    res.json({
+      ok: true,
+      message: 'Front desk ProjectMembership updated successfully',
+    });
+  } catch (err: any) {
+    console.error('Error updating ProjectMembership:', err);
     res.status(500).json({ ok: false, error: err?.message ?? 'Server error' });
   }
 });
