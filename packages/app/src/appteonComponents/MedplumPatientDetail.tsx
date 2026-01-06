@@ -57,6 +57,7 @@ export function MedplumPatientDetail({ selectedPatientId }: MedplumPatientDetail
 
   // Pre-Chart Notes state
   const [preChartLoading, setPreChartLoading] = useState(false);
+  const [preChartLoadingStep, setPreChartLoadingStep] = useState<'idle' | 'ehr-sync' | 'generating'>('idle');
   const [preChartNote, setPreChartNote] = useState<any>(null);
   const [isSavingPreChart, setIsSavingPreChart] = useState(false);
   const [preChartHistory, setPreChartHistory] = useState<any[]>([]);
@@ -345,23 +346,44 @@ export function MedplumPatientDetail({ selectedPatientId }: MedplumPatientDetail
   };
 
   // Generate Pre-Chart note from patient medical history
+  // This is a 2-step process:
+  // 1. Fetch latest data from EHR (if configured)
+  // 2. Generate pre-chart notes from the updated data
   async function handleGeneratePreChartNote() {
     if (!selectedPatientId) return;
     setPreChartLoading(true);
+    setPreChartLoadingStep('ehr-sync');
     try {
       const url = `${httpBase}/api/medai/medplum/pre-chart-notes/notes/generate`;
+
+      // The backend now handles both EHR sync and note generation
+      // We update the loading step after a brief delay to show the EHR sync step
+      // The actual step transition happens on the backend
+      const syncTimeout = setTimeout(() => {
+        setPreChartLoadingStep('generating');
+      }, 3000); // Show EHR sync for at least 3 seconds, then switch to generating
+
       const resp = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ patient_id: selectedPatientId }),
       });
+
+      clearTimeout(syncTimeout);
+      setPreChartLoadingStep('generating');
+
       if (!resp.ok) {
         const tx = await resp.text();
         throw new Error(`${resp.status}: ${tx}`);
       }
       const result = await resp.json();
       if (!result.ok) throw new Error(result.error || 'Failed to generate');
+
+      // Log EHR sync results if available
+      if (result.ehr_sync) {
+        console.log('[PreChart] EHR sync result:', result.ehr_sync);
+      }
 
       // Refresh latest notes to ensure we have the most up-to-date data
       const listResp = await fetch(`${httpBase}/api/medai/medplum/pre-chart-notes/notes/${selectedPatientId}`, {
@@ -379,6 +401,7 @@ export function MedplumPatientDetail({ selectedPatientId }: MedplumPatientDetail
       alert(`Failed to generate Pre-Chart note: ${e.message}`);
     } finally {
       setPreChartLoading(false);
+      setPreChartLoadingStep('idle');
     }
   }
 
@@ -494,6 +517,7 @@ export function MedplumPatientDetail({ selectedPatientId }: MedplumPatientDetail
           smartHistory={smartHistory}
           preChartNote={preChartNote}
           preChartLoading={preChartLoading}
+          preChartLoadingStep={preChartLoadingStep}
           onGeneratePreChart={handleGeneratePreChartNote}
           onSavePreChart={handleSavePreChartNote}
           isSavingPreChart={isSavingPreChart}

@@ -483,6 +483,7 @@ interface SynthesisColumnProps {
   // Pre-Chart data
   preChartNote: { id?: string; content?: string; created_at?: string } | null;
   preChartLoading: boolean;
+  preChartLoadingStep?: 'idle' | 'ehr-sync' | 'generating';
   onGeneratePreChart: () => Promise<void>;
   onSavePreChart: (content: string) => Promise<void>;
   isSavingPreChart: boolean;
@@ -575,6 +576,7 @@ export const SynthesisColumn = ({
   smartHistory = [],
   preChartNote,
   preChartLoading,
+  preChartLoadingStep = 'idle',
   onGeneratePreChart,
   onSavePreChart,
   isSavingPreChart,
@@ -2912,6 +2914,7 @@ export const SynthesisColumn = ({
                 getLastTranscriptSummary={getLastTranscriptSummary}
                 onGeneratePreChart={onGeneratePreChart}
                 preChartLoading={preChartLoading}
+                preChartLoadingStep={preChartLoadingStep}
               />
             )}
 
@@ -2928,8 +2931,12 @@ export const SynthesisColumn = ({
                 >
                   {preChartLoading ? (
                     <>
-                      <Sparkles className="w-4 h-4 animate-spin" />
-                      Generating...
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      {preChartLoadingStep === 'ehr-sync'
+                        ? 'Fetching latest information from EHR...'
+                        : preChartLoadingStep === 'generating'
+                        ? 'Generating pre-chart notes...'
+                        : 'Loading...'}
                     </>
                   ) : (
                     <>

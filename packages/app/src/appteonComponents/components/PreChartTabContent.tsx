@@ -29,6 +29,7 @@ interface PreChartTabContentProps {
   getLastTranscriptSummary: () => { date?: string; summary: string; provider?: string } | null;
   onGeneratePreChart?: () => Promise<void>;
   preChartLoading?: boolean;
+  preChartLoadingStep?: 'idle' | 'ehr-sync' | 'generating';
 }
 
 export function PreChartTabContent({
@@ -38,6 +39,7 @@ export function PreChartTabContent({
   getLastTranscriptSummary,
   onGeneratePreChart,
   preChartLoading = false,
+  preChartLoadingStep = 'idle',
 }: PreChartTabContentProps) {
   const [expandedLabs, setExpandedLabs] = useState<Set<string>>(new Set());
 
@@ -160,7 +162,11 @@ export function PreChartTabContent({
             {preChartLoading ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                Generating...
+                {preChartLoadingStep === 'ehr-sync'
+                  ? 'Fetching latest information from EHR...'
+                  : preChartLoadingStep === 'generating'
+                  ? 'Generating pre-chart notes...'
+                  : 'Loading...'}
               </>
             ) : (
               <>

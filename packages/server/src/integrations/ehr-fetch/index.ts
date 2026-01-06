@@ -34,6 +34,9 @@ export {
 // Worker exports
 export { syncFromPracticeFusion } from './services/pfSyncWorker';
 
+// Single patient sync exports (for on-demand fetching)
+export { syncSinglePatientFromEHR, isSinglePatientSyncEnabled } from './services/singlePatientSync';
+
 // Auth exports
 export { SmartBackendClient, discoverSmartEndpoints } from './auth/smartClient';
 export type { SmartClientConfig, AccessTokenResponse } from './auth/smartClient';
