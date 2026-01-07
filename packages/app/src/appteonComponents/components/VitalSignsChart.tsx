@@ -59,16 +59,17 @@ export function VitalSignsChart({
     };
   }, [isFullscreen]);
 
-  const hasData = data && data.length > 0;
-  const hasDualData = hasData && data.some((d) => d.value2 !== undefined);
+  const chartData = (data || []).slice(-5);
+  const hasData = chartData && chartData.length > 0;
+  const hasDualData = hasData && chartData.some((d) => d.value2 !== undefined);
 
   // Strip unit from currentValue if present (handles both "80 mmHg" and "120/80 mmHg" formats)
   const cleanCurrentValue = currentValue
     .replace(new RegExp(`\\s*${unit}\\s*`, 'gi'), '')
     .trim();
 
-  const values = hasData ? data.map((d) => d.value) : [];
-  const values2 = hasDualData ? data.map((d) => d.value2 || 0).filter((v) => v > 0) : [];
+  const values = hasData ? chartData.map((d) => d.value) : [];
+  const values2 = hasDualData ? chartData.map((d) => d.value2 || 0).filter((v) => v > 0) : [];
   const allValues = [...values, ...values2];
 
   const minValue = hasData ? Math.min(...allValues, minRange, minRange2 || minRange) : minRange;
@@ -106,8 +107,8 @@ export function VitalSignsChart({
   const ChartContent = ({ height = 300 }: { height?: number }) => (
     <ResponsiveContainer width="100%" height={height}>
       <ComposedChart
-        data={hasData ? data : []}
-        margin={{ top: 10, right: hasDualData ? 100 : 50, left: 5, bottom: compact ? 10 : 40 }}
+        data={hasData ? chartData : []}
+        margin={{ top: 10, right: hasDualData ? 60 : 50, left: 5, bottom: compact ? 10 : 40 }}
       >
         <defs>
           <linearGradient id={`colorNormal-${title}`} x1="0" y1="0" x2="0" y2="1">
@@ -185,12 +186,12 @@ export function VitalSignsChart({
           stroke="hsl(0, 0%, 39%)"
           strokeWidth={2}
           label={{
-            value: hasDualData ? (dataLabel ? `${dataLabel} High` : 'High') : 'High',
-            position: 'insideTopRight',
+            value: 'High',
+            position: 'right',
             fill: 'hsl(0, 0%, 39%)',
             fontSize: compact ? 9 : 11,
             fontWeight: 600,
-            offset: 5,
+            offset: 12,
           }}
         />
 
@@ -199,12 +200,12 @@ export function VitalSignsChart({
           stroke="hsl(0, 0%, 39%)"
           strokeWidth={2}
           label={{
-            value: hasDualData ? (dataLabel ? `${dataLabel} Low` : 'Low') : 'Low',
-            position: 'insideBottomRight',
+            value: 'Low',
+            position: 'right',
             fill: 'hsl(0, 0%, 39%)',
             fontSize: compact ? 9 : 11,
             fontWeight: 600,
-            offset: 5,
+            offset: 12,
           }}
         />
 
@@ -213,15 +214,15 @@ export function VitalSignsChart({
           <>
             <ReferenceLine
               y={maxRange2}
-              stroke="hsl(0, 0%, 55%)"
+              stroke="hsl(0, 0%, 39%)"
               strokeWidth={2}
               label={{
-                value: dataLabel2 ? `${dataLabel2} High` : 'High 2',
-                position: 'insideTopRight',
-                fill: 'hsl(0, 0%, 55%)',
+                value: 'High',
+                position: 'right',
+                fill: 'hsl(0, 0%, 39%)',
                 fontSize: compact ? 9 : 11,
                 fontWeight: 600,
-                offset: 5,
+                offset: 12,
               }}
             />
             <ReferenceLine
@@ -229,12 +230,12 @@ export function VitalSignsChart({
               stroke="hsl(0, 0%, 55%)"
               strokeWidth={2}
               label={{
-                value: dataLabel2 ? `${dataLabel2} Low` : 'Low 2',
-                position: 'insideBottomRight',
+                value: 'Low',
+                position: 'right',
                 fill: 'hsl(0, 0%, 55%)',
                 fontSize: compact ? 9 : 11,
                 fontWeight: 600,
-                offset: 5,
+                offset: 12,
               }}
             />
           </>
@@ -250,7 +251,7 @@ export function VitalSignsChart({
             isAnimationActive={false}
             barSize={chartType === 'groupedBar' ? 16 : 24}
           >
-            {data.map((entry, index) => {
+            {chartData.map((entry, index) => {
               const isOutOfRange = entry.value < minRange || entry.value > maxRange;
               return (
                 <Cell
@@ -272,7 +273,7 @@ export function VitalSignsChart({
             isAnimationActive={false}
             barSize={16}
           >
-            {data.map((entry, index) => {
+            {chartData.map((entry, index) => {
               const isOutOfRange = entry.value2 !== undefined && minRange2 !== undefined && maxRange2 !== undefined &&
                 (entry.value2 < minRange2 || entry.value2 > maxRange2);
               return (
@@ -328,6 +329,18 @@ export function VitalSignsChart({
                 <p className="text-xs text-muted-foreground mt-1">No data recorded in EMR</p>
               )}
             </div>
+            {!compact && (
+              <div className="ml-3 flex flex-col items-end text-xs text-muted-foreground space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="w-6 h-1 rounded" style={{ backgroundColor: 'hsl(0, 0%, 39%)' }} />
+                  <span>High</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="w-6 h-1 rounded" style={{ backgroundColor: 'hsl(0, 0%, 39%)' }} />
+                  <span>Low</span>
+                </div>
+              </div>
+            )}
             {compact && (
               <button
                 onClick={() => setIsFullscreen(true)}
@@ -369,6 +382,16 @@ export function VitalSignsChart({
                     : `${minRange}-${maxRange}`} {unit}
                 </p>
               </div>
+                <div className="ml-4 flex flex-col items-end text-sm text-muted-foreground space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="w-8 h-1 rounded" style={{ backgroundColor: 'hsl(0, 0%, 39%)' }} />
+                    <span>High</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-8 h-1 rounded" style={{ backgroundColor: 'hsl(0, 0%, 39%)' }} />
+                    <span>Low</span>
+                  </div>
+                </div>
               <button
                 onClick={() => setIsFullscreen(false)}
                 className="p-2 rounded-md hover:bg-muted transition-colors"
