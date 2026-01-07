@@ -27,7 +27,7 @@ export function Header(props: HeaderProps): JSX.Element {
   const navigate = useMedplumNavigate();
   const [userMenuOpened, setUserMenuOpened] = useState(false);
 
-  const showAppteonLogo = ['/', '/review', '/appointments', '/appointments/upload'].includes(
+  const showAppteonLogo = ['/', '/review', '/appointments', '/appointments/upload', '/signin', '/register'].includes(
     props.pathname ?? ''
   );
 
