@@ -690,6 +690,66 @@ healthscribeRouter.get('/audio/:jobName', async (req, res): Promise<void> => {
 	}
 });
 
+// Delete audio recording for a specific job
+healthscribeRouter.delete('/audio/:jobName', async (req, res): Promise<void> => {
+	try {
+		const { jobName } = req.params;
+
+		console.log('Deleting audio for jobName:', jobName);
+
+		await requestContextStore.run(AuthenticatedRequestContext.system(), async () => {
+			const repo = getSystemRepo();
+
+			// Search for Media resource with the job name identifier
+			const searchResult = await repo.search({
+				resourceType: 'Media',
+				filters: [
+					{
+						code: 'identifier',
+						operator: 'eq',
+						value: `http://medplum.com/fhir/healthscribe-job|${jobName}`,
+					},
+				],
+			});
+
+			if (!searchResult.entry?.[0]) {
+				console.error('No Media resource found for jobName:', jobName);
+				throw new Error('Audio not found');
+			}
+
+			const media = searchResult.entry[0].resource as Media;
+			console.log('Found Media resource to delete:', {
+				id: media.id,
+				contentUrl: media.content?.url,
+			});
+
+			const binaryUrl = media.content?.url;
+			const binaryId = binaryUrl ? binaryUrl.replace('Binary/', '') : null;
+
+			// Delete the Binary resource if it exists
+			if (binaryId) {
+				try {
+					await repo.deleteResource('Binary', binaryId);
+					console.log('Deleted Binary resource:', binaryId);
+				} catch (err: any) {
+					console.warn('Failed to delete Binary resource (may already be deleted):', binaryId, err?.message);
+				}
+			}
+
+			// Delete the Media resource
+			await repo.deleteResource('Media', media.id as string);
+			console.log('Deleted Media resource:', media.id);
+		});
+
+		res.status(200).json({ ok: true, message: 'Audio recording deleted successfully' });
+		return;
+	} catch (err: any) {
+		const status = err?.message === 'Audio not found' ? 404 : 500;
+		res.status(status).json({ ok: false, error: err?.message ?? 'Server error' });
+		return;
+	}
+});
+
 // Get list of scribe notes for a patient
 healthscribeRouter.get('/scribe-notes/:patientId', async (req, res): Promise<void> => {
 	try {
