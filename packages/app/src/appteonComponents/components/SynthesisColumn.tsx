@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRecordingContext } from '../contexts/RecordingContext';
 
 // DropdownNote component for previous notes
@@ -596,6 +596,12 @@ export const SynthesisColumn = ({
   const [editingSection, setEditingSectionRaw] = useState<string | null>(null);
   const [editCache, setEditCache] = useState<Record<string, any>>({});
 
+  // Track previous recording state to detect when recording starts
+  const prevIsRecordingRef = useRef(isRecording);
+
+  // Track previous patient ID to detect when patient switches
+  const prevPatientIdRef = useRef(patientId);
+
   // Wrapper for setEditingSection that prevents editing while recording
   const setEditingSection = (section: string | null) => {
     if (isRecording && section !== null) {
@@ -626,6 +632,198 @@ export const SynthesisColumn = ({
   const onGenerate = activeTab === 'synthesis' ? onGenerateSmart : onGeneratePreChart;
   const onSave = activeTab === 'synthesis' ? onSaveSmart : onSavePreChart;
   const historyNotes = activeTab === 'synthesis' ? smartHistory : preChartHistory;
+
+  // Auto-save and exit edit mode when recording starts
+  useEffect(() => {
+    // Detect transition from not recording to recording
+    const recordingJustStarted = isRecording && !prevIsRecordingRef.current;
+
+    if (recordingJustStarted && editingSection) {
+      // Auto-save the current edits before recording starts
+      const autoSave = async () => {
+        try {
+          const originalParsed = parseNoteData(currentNote?.content);
+          if (!originalParsed) return;
+
+          let updated = { ...originalParsed };
+
+          // Apply edits based on which section is being edited
+          switch (editingSection) {
+            case 'subjective': {
+              const subj = editCache.subjective || {};
+              updated.subjective = {
+                ...originalParsed.subjective,
+                chiefComplaint: subj.chiefComplaint !== undefined ? subj.chiefComplaint : originalParsed.subjective.chiefComplaint,
+                hpi: subj.hpi !== undefined ? subj.hpi : originalParsed.subjective.hpi,
+                intervalHistory: subj.intervalHistory !== undefined ? subj.intervalHistory : originalParsed.subjective.intervalHistory,
+                reviewOfSystems: subj.reviewOfSystems ?? originalParsed.subjective.reviewOfSystems
+              };
+              break;
+            }
+            case 'objective': {
+              const obj = editCache.objective || {};
+              updated.objective = {
+                ...originalParsed.objective,
+                vitals: obj.vitals ?? originalParsed.objective.vitals,
+                examFindings: obj.examFindings ?? originalParsed.objective.examFindings,
+                labsImaging: obj.labsImaging ?? originalParsed.objective.labsImaging
+              };
+              break;
+            }
+            case 'assessmentAndPlan': {
+              const ap = editCache.assessmentAndPlan;
+              if (ap) updated.assessmentAndPlan = ap;
+              break;
+            }
+            case 'pastMedicalHistory': {
+              const pmh = editCache.pastMedicalHistory;
+              if (pmh) updated.pastMedicalHistory = pmh;
+              break;
+            }
+            case 'medications': {
+              const meds = editCache.medications;
+              if (meds) updated.medications = meds;
+              break;
+            }
+            case 'allergies': {
+              const allergies = editCache.allergies;
+              if (allergies) updated.allergies = allergies;
+              break;
+            }
+            case 'socialFamilyHistory': {
+              const sfh = editCache.socialFamilyHistory || {};
+              updated.socialFamilyHistory = {
+                social: sfh.social ?? originalParsed.socialFamilyHistory.social,
+                family: sfh.family ?? originalParsed.socialFamilyHistory.family
+              };
+              break;
+            }
+            case 'counseling': {
+              const counseling = editCache.counseling;
+              if (counseling) updated.counseling = counseling;
+              break;
+            }
+            case 'disposition': {
+              const disposition = editCache.disposition;
+              if (disposition !== undefined) updated.disposition = disposition;
+              break;
+            }
+          }
+
+          // Save the updated note
+          await onSave(JSON.stringify(updated));
+          console.log(`Auto-saved ${editingSection} section before recording started`);
+        } catch (e) {
+          console.error('Auto-save failed:', e);
+        } finally {
+          // Exit edit mode regardless of save success/failure
+          setEditingSectionRaw(null);
+          setEditCache({});
+        }
+      };
+
+      autoSave();
+    }
+
+    // Update ref for next render
+    prevIsRecordingRef.current = isRecording;
+  }, [isRecording, editingSection, editCache, currentNote, onSave]);
+
+  // Auto-save and exit edit mode when patient switches
+  useEffect(() => {
+    // Detect patient switch (patient ID changed and it's not just initial mount)
+    const patientSwitched = patientId !== prevPatientIdRef.current && prevPatientIdRef.current !== null;
+
+    if (patientSwitched && editingSection) {
+      // Auto-save the current edits before switching patients
+      const autoSave = async () => {
+        try {
+          const originalParsed = parseNoteData(currentNote?.content);
+          if (!originalParsed) return;
+
+          let updated = { ...originalParsed };
+
+          // Apply edits based on which section is being edited
+          switch (editingSection) {
+            case 'subjective': {
+              const subj = editCache.subjective || {};
+              updated.subjective = {
+                ...originalParsed.subjective,
+                chiefComplaint: subj.chiefComplaint !== undefined ? subj.chiefComplaint : originalParsed.subjective.chiefComplaint,
+                hpi: subj.hpi !== undefined ? subj.hpi : originalParsed.subjective.hpi,
+                intervalHistory: subj.intervalHistory !== undefined ? subj.intervalHistory : originalParsed.subjective.intervalHistory,
+                reviewOfSystems: subj.reviewOfSystems ?? originalParsed.subjective.reviewOfSystems
+              };
+              break;
+            }
+            case 'objective': {
+              const obj = editCache.objective || {};
+              updated.objective = {
+                ...originalParsed.objective,
+                vitals: obj.vitals ?? originalParsed.objective.vitals,
+                examFindings: obj.examFindings ?? originalParsed.objective.examFindings,
+                labsImaging: obj.labsImaging ?? originalParsed.objective.labsImaging
+              };
+              break;
+            }
+            case 'assessmentAndPlan': {
+              const ap = editCache.assessmentAndPlan;
+              if (ap) updated.assessmentAndPlan = ap;
+              break;
+            }
+            case 'pastMedicalHistory': {
+              const pmh = editCache.pastMedicalHistory;
+              if (pmh) updated.pastMedicalHistory = pmh;
+              break;
+            }
+            case 'medications': {
+              const meds = editCache.medications;
+              if (meds) updated.medications = meds;
+              break;
+            }
+            case 'allergies': {
+              const allergies = editCache.allergies;
+              if (allergies) updated.allergies = allergies;
+              break;
+            }
+            case 'socialFamilyHistory': {
+              const sfh = editCache.socialFamilyHistory || {};
+              updated.socialFamilyHistory = {
+                social: sfh.social ?? originalParsed.socialFamilyHistory.social,
+                family: sfh.family ?? originalParsed.socialFamilyHistory.family
+              };
+              break;
+            }
+            case 'counseling': {
+              const counseling = editCache.counseling;
+              if (counseling) updated.counseling = counseling;
+              break;
+            }
+            case 'disposition': {
+              const disposition = editCache.disposition;
+              if (disposition !== undefined) updated.disposition = disposition;
+              break;
+            }
+          }
+
+          // Save the updated note
+          await onSave(JSON.stringify(updated));
+          console.log(`Auto-saved ${editingSection} section before patient switch`);
+        } catch (e) {
+          console.error('Auto-save on patient switch failed:', e);
+        } finally {
+          // Exit edit mode regardless of save success/failure
+          setEditingSectionRaw(null);
+          setEditCache({});
+        }
+      };
+
+      autoSave();
+    }
+
+    // Update ref for next render
+    prevPatientIdRef.current = patientId;
+  }, [patientId, editingSection, editCache, currentNote, onSave]);
 
   // Generate markdown for a single synthesis section
   const generateSectionMarkdown = (parsed: ParsedData | null, section: string, note?: { id?: string; content?: string; created_at?: string }): string => {

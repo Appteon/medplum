@@ -18,8 +18,8 @@ import {
   Syringe,
   User,
   Copy,
-  Sparkles,
-  Loader2,
+  // Sparkles,
+  // Loader2,
 } from 'lucide-react';
 
 interface PreChartTabContentProps {
@@ -152,7 +152,7 @@ export function PreChartTabContent({
   return (
     <>
       {/* Header with Generate Button */}
-      {onGeneratePreChart && (
+      {/* {onGeneratePreChart && (
         <div className="flex justify-end mb-4 -mt-2">
           <button
             onClick={() => onGeneratePreChart()}
@@ -176,7 +176,7 @@ export function PreChartTabContent({
             )}
           </button>
         </div>
-      )}
+      )} */}
 
       {/* Patient Demographics Card */}
       <div className="emr-medical-card">
