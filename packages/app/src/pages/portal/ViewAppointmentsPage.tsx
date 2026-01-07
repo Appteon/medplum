@@ -3,7 +3,7 @@
 import { Button, Table, Badge, TextInput, Select, Group, Paper, LoadingOverlay, Pagination } from '@mantine/core';
 import { useMedplum, useMedplumProfile } from '@medplum/react';
 import { getDisplayString } from '@medplum/core';
-import type { Appointment } from '@medplum/fhirtypes';
+import type { Appointment, Practitioner } from '@medplum/fhirtypes';
 import type { JSX } from 'react';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
@@ -114,10 +114,14 @@ export function ViewAppointmentsPage(): JSX.Element {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string | null>(null);
+  // const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [nameCache, setNameCache] = useState<Record<string, string>>({});
   const [page, setPage] = useState(1);
   const pageSize = 50;
+
+  // Front desk: list of practitioners and selected practitioner filter
+  const [practitioners, setPractitioners] = useState<Practitioner[]>([]);
+  const [selectedPractitionerId, setSelectedPractitionerId] = useState<string | null>(null);
 
   const accessPolicyName = medplum.getAccessPolicy()?.name;
   const isFrontDeskUser = isFrontDesk(profile, accessPolicyName);
@@ -142,10 +146,8 @@ export function ViewAppointmentsPage(): JSX.Element {
     return `${year}-${month}-${day}`;
   };
 
-  const startOfToday = (): Date => {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    return d;
+  const getNow = (): Date => {
+    return new Date();
   };
 
   const fetchAppointments = async (): Promise<void> => {
@@ -225,6 +227,20 @@ export function ViewAppointmentsPage(): JSX.Element {
       if (Object.keys(newCache).length > 0) {
         setNameCache((prev) => ({ ...prev, ...newCache }));
       }
+
+      // For front desk users, populate the practitioners dropdown from appointments
+      if (isFrontDeskUser && practitioners.length > 0) {
+        const sorted = (practitioners as Practitioner[]).sort((a, b) => {
+          const nameA = getDisplayString(a).toLowerCase();
+          const nameB = getDisplayString(b).toLowerCase();
+          return nameA.localeCompare(nameB);
+        });
+        setPractitioners(sorted);
+        // Default to first practitioner alphabetically
+        if (sorted.length > 0 && sorted[0].id) {
+          setSelectedPractitionerId(sorted[0].id);
+        }
+      }
     } catch (err) {
       console.error('Failed to prefetch names:', err);
     }
@@ -239,23 +255,30 @@ export function ViewAppointmentsPage(): JSX.Element {
   // Reset to first page on filter/search changes
   useEffect(() => {
     setPage(1);
-  }, [searchQuery, statusFilter]);
+  }, [searchQuery, /*statusFilter,*/ selectedPractitionerId]);
 
-  // Filter to today and future, then apply status/search filters
-  const startToday = startOfToday().getTime();
+  // Filter to only show appointments after current time
+  const nowTime = getNow().getTime();
   const filteredAppointments = appointments.filter((apt) => {
     const t = apt.start ? new Date(apt.start).getTime() : 0;
-    if (t < startToday) {
+    if (t < nowTime) {
       return false;
     }
     // Ensure appointment belongs to signed-in practitioner/role
     if (!isFrontDeskUser && (isPractitioner || isPractitionerRole) && !appointmentHasPractitioner(apt, profile)) {
       return false;
     }
-    // Status filter
-    if (statusFilter && apt.status?.toLowerCase() !== statusFilter.toLowerCase()) {
-      return false;
+    // Front desk: filter by selected practitioner
+    if (isFrontDeskUser && selectedPractitionerId) {
+      const practitionerRef = getPractitionerRef(apt);
+      if (practitionerRef !== `Practitioner/${selectedPractitionerId}`) {
+        return false;
+      }
     }
+    // Status filter
+    // if (statusFilter && apt.status?.toLowerCase() !== statusFilter.toLowerCase()) {
+    //   return false;
+    // }
     // Search filter
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
@@ -276,7 +299,7 @@ export function ViewAppointmentsPage(): JSX.Element {
   console.log('Filtered appointments:', {
     totalAppointments: appointments.length,
     filteredCount: filteredAppointments.length,
-    startToday,
+    nowTime,
   });
 
   // Sort ascending by start time (today first, then future)
@@ -314,8 +337,12 @@ export function ViewAppointmentsPage(): JSX.Element {
               Back
             </Button>
             <div>
-              <h1 className="text-2xl font-bold text-foreground">Appointments</h1>
-              <p className="text-muted-foreground">View and manage patient appointments</p>
+              <h1 className="text-2xl font-bold text-foreground">Upcoming Appointments</h1>
+              <p className="text-muted-foreground">
+                {isPractitioner || isPractitionerRole
+                  ? 'Your scheduled appointments'
+                  : 'View and manage patient appointments'}
+              </p>
             </div>
           </div>
           <Button
@@ -331,13 +358,25 @@ export function ViewAppointmentsPage(): JSX.Element {
         <Paper className="emr-card p-4 mb-6">
           <Group>
             <TextInput
-              placeholder="Search by patient, provider, type..."
+              placeholder="Search by patient, type..."
               leftSection={<IconSearch size={16} />}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.currentTarget.value)}
               style={{ flex: 1, maxWidth: 400 }}
             />
-            <Select
+            {isFrontDeskUser && (
+              <Select
+                placeholder="Select Provider"
+                data={practitioners.map((p) => ({
+                  value: p.id ?? '',
+                  label: getDisplayString(p),
+                }))}
+                value={selectedPractitionerId}
+                onChange={setSelectedPractitionerId}
+                style={{ width: 250 }}
+              />
+            )}
+            {/* <Select
               placeholder="Filter by status"
               data={[
                 { value: '', label: 'All Statuses' },
@@ -352,7 +391,7 @@ export function ViewAppointmentsPage(): JSX.Element {
               onChange={setStatusFilter}
               clearable
               style={{ width: 200 }}
-            />
+            /> */}
           </Group>
         </Paper>
 
@@ -364,7 +403,6 @@ export function ViewAppointmentsPage(): JSX.Element {
               <Table.Tr>
                 <Table.Th>Date/Time</Table.Th>
                 <Table.Th>Patient</Table.Th>
-                <Table.Th>Provider</Table.Th>
                 <Table.Th>Type</Table.Th>
                 <Table.Th>Chief Complaint</Table.Th>
                 <Table.Th>Status</Table.Th>
@@ -373,7 +411,7 @@ export function ViewAppointmentsPage(): JSX.Element {
             <Table.Tbody>
               {sortedAppointments.length === 0 ? (
                 <Table.Tr>
-                  <Table.Td colSpan={6} className="text-center py-8 text-muted-foreground">
+                  <Table.Td colSpan={5} className="text-center py-8 text-muted-foreground">
                     {loading ? 'Loading appointments...' : 'No appointments found'}
                   </Table.Td>
                 </Table.Tr>
@@ -383,9 +421,6 @@ export function ViewAppointmentsPage(): JSX.Element {
                     <Table.Td>{formatDateTime(appointment.start)}</Table.Td>
                     <Table.Td>
                       {nameCache[getPatientRef(appointment) ?? ''] || 'Unknown Patient'}
-                    </Table.Td>
-                    <Table.Td>
-                      {nameCache[getPractitionerRef(appointment) ?? ''] || 'Unknown Provider'}
                     </Table.Td>
                     <Table.Td>{getAppointmentType(appointment)}</Table.Td>
                     <Table.Td>{getChiefComplaint(appointment)}</Table.Td>

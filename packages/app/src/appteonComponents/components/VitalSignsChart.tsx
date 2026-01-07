@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, ComposedChart, ReferenceArea } from 'recharts';
+import { Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, ComposedChart, ReferenceArea, Cell } from 'recharts';
 import { Maximize2, X } from 'lucide-react';
 
 interface VitalChartData {
@@ -22,6 +22,7 @@ interface VitalSignsChartProps {
   maxRange2?: number;
   dataLabel?: string;
   dataLabel2?: string;
+  chartType?: 'line' | 'bar' | 'groupedBar';
 }
 
 export function VitalSignsChart({
@@ -36,6 +37,7 @@ export function VitalSignsChart({
   maxRange2,
   dataLabel,
   dataLabel2,
+  chartType = 'bar',
 }: VitalSignsChartProps) {
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -238,48 +240,49 @@ export function VitalSignsChart({
           </>
         )}
 
-        {/* Main data line */}
+        {/* Main data bar */}
         {hasData && (
-          <Line
-            type="monotone"
+          <Bar
             dataKey="value"
-            stroke="hsl(var(--chart-1))"
-            strokeWidth={compact ? 2 : 3}
             name={dataLabel || 'Value'}
-            dot={{
-              fill: 'hsl(var(--chart-1))',
-              r: compact ? 3 : 4,
-              strokeWidth: 2,
-              stroke: 'hsl(var(--card))',
-            }}
-            activeDot={{
-              r: compact ? 5 : 6,
-              strokeWidth: 2,
-            }}
+            fill="hsl(var(--chart-1))"
+            radius={[4, 4, 0, 0]}
             isAnimationActive={false}
-          />
+            barSize={chartType === 'groupedBar' ? 16 : 24}
+          >
+            {data.map((entry, index) => {
+              const isOutOfRange = entry.value < minRange || entry.value > maxRange;
+              return (
+                <Cell
+                  key={`cell-${index}`}
+                  fill={isOutOfRange ? 'hsl(0, 65%, 55%)' : 'hsl(var(--chart-1))'}
+                />
+              );
+            })}
+          </Bar>
         )}
 
-        {/* Second data line for dual data */}
-        {hasDualData && (
-          <Line
-            type="monotone"
+        {/* Second data bar for dual data (grouped bar for BP) */}
+        {hasDualData && chartType === 'groupedBar' && (
+          <Bar
             dataKey="value2"
-            stroke="hsl(var(--chart-2))"
-            strokeWidth={compact ? 2 : 3}
             name={dataLabel2 || 'Value 2'}
-            dot={{
-              fill: 'hsl(var(--chart-2))',
-              r: compact ? 3 : 4,
-              strokeWidth: 2,
-              stroke: 'hsl(var(--card))',
-            }}
-            activeDot={{
-              r: compact ? 5 : 6,
-              strokeWidth: 2,
-            }}
+            fill="hsl(var(--chart-2))"
+            radius={[4, 4, 0, 0]}
             isAnimationActive={false}
-          />
+            barSize={16}
+          >
+            {data.map((entry, index) => {
+              const isOutOfRange = entry.value2 !== undefined && minRange2 !== undefined && maxRange2 !== undefined &&
+                (entry.value2 < minRange2 || entry.value2 > maxRange2);
+              return (
+                <Cell
+                  key={`cell2-${index}`}
+                  fill={isOutOfRange ? 'hsl(25, 95%, 55%)' : 'hsl(var(--chart-2))'}
+                />
+              );
+            })}
+          </Bar>
         )}
 
         {/* No data overlay */}

@@ -430,8 +430,8 @@ export function PreChartTabContent({
 
         {/* 2x2 Grid of Vital Charts */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Blood Pressure Chart */}
-          <div className="border border-border rounded-lg p-3 pl-0 pb-1">
+          {/* Blood Pressure Chart - Full Width */}
+          <div className="border border-border rounded-lg p-3 pl-0 pb-1 md:col-span-2">
             <VitalSignsChart
               title="Blood Pressure"
               data={preChartData.vitalSignsTrends
@@ -453,6 +453,7 @@ export function PreChartTabContent({
               dataLabel2="Diastolic"
               currentValue={preChartData.vitalSignsTrends?.find((v) => v.bp)?.bp || 'N/A'}
               compact={true}
+              chartType="groupedBar"
             />
           </div>
 
