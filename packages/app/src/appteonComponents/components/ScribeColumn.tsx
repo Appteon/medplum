@@ -263,7 +263,8 @@ export const ScribeColumn = ({
       const jobName = entry.jobName || entry.id;
       if (!jobName) return;
 
-      if (preloadedAudio[jobName]) return;
+      // Skip if already preloaded or already known to be deleted
+      if (preloadedAudio[jobName] || deletedRecordings.has(jobName)) return;
 
       try {
         const baseUrl = `${httpBase}/api/medai/medplum/healthscribe/audio/${encodeURIComponent(jobName)}`;
@@ -271,6 +272,13 @@ export const ScribeColumn = ({
         // First, fetch metadata to get duration
         const metadataResp = await authenticatedFetch(`${baseUrl}?metadata=true`, { method: 'GET' });
         let duration: number | undefined;
+
+        // If metadata returns 404, the audio has been deleted
+        if (metadataResp.status === 404) {
+          console.log(`Audio for job ${jobName} was deleted, marking as deleted`);
+          setDeletedRecordings((prev) => new Set(prev).add(jobName));
+          return;
+        }
 
         if (metadataResp.ok) {
           const metadata = await metadataResp.json();
@@ -281,6 +289,12 @@ export const ScribeColumn = ({
 
         // Then fetch the actual audio data
         const audioResp = await authenticatedFetch(baseUrl, { method: 'GET' });
+
+        if (audioResp.status === 404) {
+          console.log(`Audio for job ${jobName} was deleted, marking as deleted`);
+          setDeletedRecordings((prev) => new Set(prev).add(jobName));
+          return;
+        }
 
         if (!audioResp.ok) {
           console.warn(`Failed to preload audio for job ${jobName}`);
@@ -1337,7 +1351,7 @@ export const ScribeColumn = ({
                             const isDeleted = job ? deletedRecordings.has(job) : false;
                             return (
                               <button
-                                title={isDeleted ? 'Recording deleted' : 'Play audio'}
+                                title={isDeleted ? 'Recording deleted by user' : 'Play audio'}
                                 disabled={isDeleted}
                                 onClick={async () => {
                                   if (!job) {
@@ -1594,7 +1608,7 @@ export const ScribeColumn = ({
                                 const isDeleted = job ? deletedRecordings.has(job) : false;
                                 return (
                                   <button
-                                    title={isDeleted ? 'Recording deleted' : 'Play audio'}
+                                    title={isDeleted ? 'Recording deleted by user' : 'Play audio'}
                                     disabled={isDeleted}
                                     onClick={async () => {
                                       if (!job) {
