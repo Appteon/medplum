@@ -1,8 +1,9 @@
 'use client';
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { ChevronLeft, ChevronRight, RefreshCw, Search, X, Users, Menu, Calendar, CalendarDays, CalendarRange } from 'lucide-react';
+import { ChevronLeft, ChevronRight, RefreshCw, Search, X, Users, Menu, Calendar, CalendarDays, CalendarRange, AlertCircle } from 'lucide-react';
 import { useMedplum } from '@medplum/react';
 import type { Patient as FHIRPatient } from '@medplum/fhirtypes';
+import { useRecordingContext } from './contexts/RecordingContext';
 
 interface MedplumPatientSidebarProps {
   patients: FHIRPatient[];
@@ -72,6 +73,7 @@ export function MedplumPatientSidebar({
   initialSelectedPatientId = null,
 }: MedplumPatientSidebarProps) {
   const medplum = useMedplum();
+  const { isRecording } = useRecordingContext();
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(initialSelectedPatientId);
   const [currentPage, setCurrentPage] = useState(1);
   const [activeFilter, setActiveFilter] = useState<'all' | 'today' | 'tomorrow' | 'thisWeek'>('all');
@@ -81,6 +83,38 @@ export function MedplumPatientSidebar({
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
   const [appointmentsMap, setAppointmentsMap] = useState<Record<string, any[]>>({});
   const [appointmentsLoaded, setAppointmentsLoaded] = useState(false);
+  const [fallbackPatients, setFallbackPatients] = useState<FHIRPatient[]>([]);
+  const effectivePatients = useMemo(() => (patients && patients.length > 0 ? patients : fallbackPatients), [patients, fallbackPatients]);
+
+  // Determine the logged-in practitioner's reference (e.g., "Practitioner/123")
+  const practitionerMeta = useMemo(() => {
+    try {
+      const profile: any = medplum?.getProfile?.();
+      if (!profile) return null;
+      if (profile.resourceType === 'Practitioner' && profile.id) {
+        return { id: profile.id as string, ref: `Practitioner/${profile.id}` };
+      }
+      if (profile.resourceType === 'PractitionerRole' && profile.practitioner) {
+        const ref: string | undefined = profile.practitioner.reference || (profile.practitioner as any)?.reference;
+        if (ref && ref.startsWith('Practitioner/')) {
+          const id = ref.split('/')[1];
+          return { id, ref };
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return null;
+  }, [medplum]);
+  const practitionerRef = practitionerMeta?.ref ?? null;
+  const practitionerId = practitionerMeta?.id ?? null;
+
+  // Use all effective patients (already filtered during fetch)
+  // No need for additional client-side filtering since the fetch logic
+  // already handles getting the right patients for this practitioner
+  const scopedPatients = useMemo(() => {
+    return effectivePatients;
+  }, [effectivePatients]);
   // Resolve at runtime so the bundler cannot fold the placeholder before the Docker entrypoint replaces it
   const showApptFiltersFlag = (typeof globalThis !== 'undefined' && (globalThis as any).__MEDPLUM_SHOW_APPT_FILTERS__) ?? '__MEDPLUM_SHOW_APPT_FILTERS__';
   const showApptFilters = showApptFiltersFlag !== 'false';
@@ -117,9 +151,9 @@ export function MedplumPatientSidebar({
   const filteredPatients = useMemo(() => {
     // Preserve original order for stable fallback
     const originalIndex = new Map<string, number>();
-    patients.forEach((p, i) => { if (p.id) originalIndex.set(p.id, i); });
+    scopedPatients.forEach((p, i) => { if (p.id) originalIndex.set(p.id, i); });
 
-    let base = patients.filter(p => {
+    let base = scopedPatients.filter(p => {
       if (!debouncedSearch) return true;
       const name = `${p.name?.[0]?.given?.join(' ')} ${p.name?.[0]?.family}`.toLowerCase();
       const id = (p.id || '').toLowerCase();
@@ -134,7 +168,7 @@ export function MedplumPatientSidebar({
     startOfWeekEnd.setDate(startOfWeekEnd.getDate() + 7);
 
     // Helper that returns the next appointment (on or after startOfToday) for a patient, or null
-    const getNextAppointment = (p: typeof patients[number]) => {
+    const getNextAppointment = (p: typeof scopedPatients[number]) => {
       const apps = appointmentsMap[p.id || ''] ?? [];
       // appointmentsMap is stored sorted ascending by start, so find the first strictly in the future (>= now)
       return apps.find((a: any) => {
@@ -144,36 +178,43 @@ export function MedplumPatientSidebar({
       }) || null;
     };
 
-    // If a filter is active, filter base down to only patients that have at least one matching appointment
+    // If a filter is active, try to narrow to patients with matching appointments.
+    // Fallback: if there are zero matches, keep the current (search-only) list so users still see patients.
     if (activeFilter !== 'all') {
-      base = base.filter((p) => {
-        const apps = appointmentsMap[p.id || ''] ?? [];
-        return apps.some((a: any) => {
-          if (!a.start) return false;
-          const s = new Date(a.start);
-          if (activeFilter === 'today') {
-            // only include remaining appointments today (not ones that already passed)
-            return s >= now && s < startOfTomorrow;
-          }
-          if (activeFilter === 'tomorrow') {
-            const endOfTomorrow = new Date(startOfTomorrow);
-            endOfTomorrow.setDate(endOfTomorrow.getDate() + 1);
-            return s >= startOfTomorrow && s < endOfTomorrow;
-          }
-          if (activeFilter === 'thisWeek') {
-            // include appointments from now until end of the week window
-            return s >= now && s < startOfWeekEnd;
-          }
-          return false;
+      if (appointmentsLoaded) {
+        const filteredByAppt = base.filter((p) => {
+          const apps = appointmentsMap[p.id || ''] ?? [];
+          return apps.some((a: any) => {
+            if (!a?.start) return false;
+            const s = new Date(a.start);
+            if (activeFilter === 'today') {
+              return s >= now && s < startOfTomorrow;
+            }
+            if (activeFilter === 'tomorrow') {
+              const endOfTomorrow = new Date(startOfTomorrow);
+              endOfTomorrow.setDate(endOfTomorrow.getDate() + 1);
+              return s >= startOfTomorrow && s < endOfTomorrow;
+            }
+            if (activeFilter === 'thisWeek') {
+              return s >= now && s < startOfWeekEnd;
+            }
+            return false;
+          });
         });
-      });
+
+        if (filteredByAppt.length > 0) {
+          base = filteredByAppt;
+        }
+        // else leave `base` as-is (search-only list)
+      }
+      // If appointments aren't loaded yet, also leave `base` unchanged.
     }
 
     // Sort base so that patients with upcoming appointments come first,
     // ordered by day distance from today (0 = today, 1 = tomorrow, ...) and then by time.
     // Patients without upcoming appointments keep their original relative order.
     const DAY_MS = 24 * 60 * 60 * 1000;
-    const sortKey = (p: typeof patients[number]) => {
+    const sortKey = (p: typeof scopedPatients[number]) => {
       const next = getNextAppointment(p);
       if (!next) return null;
       const s = new Date(next.start);
@@ -200,7 +241,7 @@ export function MedplumPatientSidebar({
     });
 
     return base;
-  }, [patients, debouncedSearch, activeFilter, appointmentsMap]);
+  }, [scopedPatients, debouncedSearch, activeFilter, appointmentsMap, appointmentsLoaded]);
 
   // Pagination
   const totalPages = Math.max(1, Math.ceil(filteredPatients.length / itemsPerPage));
@@ -232,10 +273,10 @@ export function MedplumPatientSidebar({
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      if (!medplum || !patients || patients.length === 0) return;
+      if (!medplum || !scopedPatients || scopedPatients.length === 0) return;
       try {
         const map: Record<string, any[]> = {};
-        await Promise.all(patients.map(async (p) => {
+        await Promise.all(scopedPatients.map(async (p) => {
           const pid = p.id;
           if (!pid) return;
           try {
@@ -267,9 +308,80 @@ export function MedplumPatientSidebar({
     };
     load();
     return () => { cancelled = true; };
-  }, [patients, medplum]);
+  }, [scopedPatients, medplum]);
+
+  // Fetch ALL patients and filter client-side by generalPractitioner
+  useEffect(() => {
+    let cancelled = false;
+    const loadPatients = async () => {
+      if (!medplum) return;
+      if (patients && patients.length > 0) return; // Parent already provided patients
+      if (!practitionerRef || !practitionerId) {
+        console.log('[Sidebar] No practitioner ID found, skipping patient fetch');
+        return;
+      }
+
+      try {
+        console.log('[Sidebar] Fetching all patients for practitioner:', practitionerId);
+
+        // Fetch ALL patients from the database
+        const allPatients: FHIRPatient[] = [];
+        let offset = 0;
+        const pageSize = 200;
+
+        while (!cancelled) {
+          const raw: any = await medplum.searchResources('Patient', `_count=${pageSize}&_offset=${offset}&_sort=-_lastUpdated`);
+          const batch: FHIRPatient[] = Array.isArray(raw)
+            ? raw
+            : (raw?.entry ?? []).map((e: any) => e.resource).filter(Boolean);
+
+          if (!batch || batch.length === 0) break;
+          allPatients.push(...batch);
+          offset += batch.length;
+
+          // Stop if we got fewer results than requested (last page)
+          if (batch.length < pageSize) break;
+        }
+
+        console.log(`[Sidebar] Fetched ${allPatients.length} total patients from database`);
+
+        // Filter client-side by generalPractitioner field
+        const myPatients = allPatients.filter((patient) => {
+          const gps = patient.generalPractitioner ?? [];
+          return gps.some((gp: any) => {
+            const ref = gp?.reference;
+            if (!ref) return false;
+
+            // Match: "Practitioner/{id}" or just "{id}"
+            if (ref === practitionerRef) return true;
+            if (ref === practitionerId) return true;
+            if (ref.endsWith(`/${practitionerId}`)) return true;
+
+            return false;
+          });
+        });
+
+        console.log(`[Sidebar] Filtered to ${myPatients.length} patients assigned to this practitioner`);
+
+        if (!cancelled) {
+          setFallbackPatients(myPatients);
+        }
+      } catch (e) {
+        console.error('[Sidebar] Failed to load patients:', e);
+        if (!cancelled) {
+          setFallbackPatients([]);
+        }
+      }
+    };
+    loadPatients();
+    return () => { cancelled = true; };
+  }, [patients, medplum, practitionerRef, practitionerId]);
 
   const handleSelectPatient : any = (patientId: string) => {
+    // Prevent patient selection while recording is in progress
+    if (isRecording) {
+      return;
+    }
     setSelectedPatientId(patientId);
     onPatientSelect(patientId);
   };
@@ -358,6 +470,14 @@ export function MedplumPatientSidebar({
               <h2 className="text-2xl font-semibold text-white">{sidebarTitle}</h2>
             </div>
           </div>
+
+          {/* Recording Warning Banner */}
+          {isRecording && (
+            <div className="mx-4 mb-3 px-3 py-2 bg-amber-500/20 border border-amber-500/30 rounded-lg flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 text-amber-400 flex-shrink-0" />
+              <span className="text-xs text-amber-200">Recording in progress - patient selection disabled</span>
+            </div>
+          )}
 
           {/* Search */}
           <div className="px-4 mb-4">
@@ -457,12 +577,14 @@ export function MedplumPatientSidebar({
                 <button
                   key={patient.id}
                   onClick={() => patient.id && handleSelectPatient(patient.id)}
-                  className={`emr-patient-row w-full text-left ${selectedPatientId === patient.id ? 'active' : ''}`}
+                  disabled={isRecording && selectedPatientId !== patient.id}
+                  className={`emr-patient-row w-full text-left ${selectedPatientId === patient.id ? 'active' : ''} ${isRecording && selectedPatientId !== patient.id ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  title={isRecording && selectedPatientId !== patient.id ? 'Cannot switch patients while recording' : undefined}
                 >
                   <div className="w-10 h-10 rounded-full bg-sidebar-accent flex items-center justify-center text-sm font-semibold flex-shrink-0">
                     {initials}
                   </div>
-                  
+
                   <div className="flex-1 min-w-0">
                     <div className="font-semibold text-base truncate">{name}</div>
                     <div className="text-sm text-sidebar-foreground/70 truncate">
@@ -516,12 +638,14 @@ export function MedplumPatientSidebar({
           <div className="mp-scrollbar flex flex-col gap-2 overflow-y-auto overflow-x-hidden py-4 px-3 w-full items-center">
             {filteredPatients.map((patient) => {
               const initials = getInitials(patient);
+              const isDisabled = isRecording && selectedPatientId !== patient.id;
               return (
                 <button
                   key={patient.id}
                   onClick={() => patient.id && handleSelectPatient(patient.id)}
-                  title={patient.name?.[0]?.family || patient.id}
-                  className={`flex-none w-12 h-12 rounded-full overflow-hidden flex items-center justify-center ${selectedPatientId === patient.id ? 'bg-red-600 shadow-lg' : 'bg-[#123a4a] hover:bg-[#1b5566]'} text-white font-semibold border border-[#071428]`}
+                  disabled={isDisabled}
+                  title={isDisabled ? 'Cannot switch patients while recording' : (patient.name?.[0]?.family || patient.id)}
+                  className={`flex-none w-12 h-12 rounded-full overflow-hidden flex items-center justify-center ${selectedPatientId === patient.id ? 'bg-red-600 shadow-lg' : 'bg-[#123a4a] hover:bg-[#1b5566]'} text-white font-semibold border border-[#071428] ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
                   <span className="text-sm">{initials}</span>
                 </button>

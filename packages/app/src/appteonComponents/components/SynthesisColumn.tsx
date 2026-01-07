@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
+import { useRecordingContext } from '../contexts/RecordingContext';
 
 // DropdownNote component for previous notes
 interface DropdownNoteProps {
@@ -582,6 +583,9 @@ export const SynthesisColumn = ({
   isSavingPreChart,
   preChartHistory = []
 }: SynthesisColumnProps) => {
+  // Get recording state from context - editing is disabled while recording
+  const { isRecording } = useRecordingContext();
+
   // Respect build-time frontend env var to show/hide regenerate buttons.
   // Default: true
   const showRegenerateButton = false; // Regenerate button removed (deprecated)
@@ -589,8 +593,17 @@ export const SynthesisColumn = ({
   const [activeTab, setActiveTab] = useState<'synthesis' | 'pre-chart'>('synthesis');
   const [copiedSection, setCopiedSection] = useState<string | null>(null);
   const [showPreviousNotes, setShowPreviousNotes] = useState(false);
-  const [editingSection, setEditingSection] = useState<string | null>(null);
+  const [editingSection, setEditingSectionRaw] = useState<string | null>(null);
   const [editCache, setEditCache] = useState<Record<string, any>>({});
+
+  // Wrapper for setEditingSection that prevents editing while recording
+  const setEditingSection = (section: string | null) => {
+    if (isRecording && section !== null) {
+      // Don't allow entering edit mode while recording
+      return;
+    }
+    setEditingSectionRaw(section);
+  };
   const [expandedObjectiveLabs, setExpandedObjectiveLabs] = useState<Set<string>>(new Set());
 
   const [lastTranscriptSummary, setLastTranscriptSummary] = useState<{ date?: string; summary: string; provider?: string } | null>(null);
@@ -1282,8 +1295,9 @@ export const SynthesisColumn = ({
                         <>
                           <button
                             onClick={() => setEditingSection('subjective')}
-                            className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors"
-                            title="Edit"
+                            disabled={isRecording}
+                            className={`p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors ${isRecording ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            title={isRecording ? 'Cannot edit while recording' : 'Edit'}
                           >
                             <Pencil className="w-4 h-4" />
                           </button>
@@ -1497,8 +1511,9 @@ export const SynthesisColumn = ({
                         <>
                           <button
                             onClick={() => setEditingSection('objective')}
-                            className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors"
-                            title="Edit"
+                            disabled={isRecording}
+                            className={`p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors ${isRecording ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            title={isRecording ? 'Cannot edit while recording' : 'Edit'}
                           >
                             <Pencil className="w-4 h-4" />
                           </button>
@@ -1970,8 +1985,9 @@ export const SynthesisColumn = ({
                         <>
                           <button
                             onClick={() => setEditingSection('assessmentAndPlan')}
-                            className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors"
-                            title="Edit"
+                            disabled={isRecording}
+                            className={`p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors ${isRecording ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            title={isRecording ? 'Cannot edit while recording' : 'Edit'}
                           >
                             <Pencil className="w-4 h-4" />
                           </button>
@@ -2146,8 +2162,9 @@ export const SynthesisColumn = ({
                         <>
                           <button
                             onClick={() => setEditingSection('pastMedicalHistory')}
-                            className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors"
-                            title="Edit"
+                            disabled={isRecording}
+                            className={`p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors ${isRecording ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            title={isRecording ? 'Cannot edit while recording' : 'Edit'}
                           >
                             <Pencil className="w-4 h-4" />
                           </button>
@@ -2300,8 +2317,9 @@ export const SynthesisColumn = ({
                         <>
                           <button
                             onClick={() => setEditingSection('medications')}
-                            className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors"
-                            title="Edit"
+                            disabled={isRecording}
+                            className={`p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors ${isRecording ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            title={isRecording ? 'Cannot edit while recording' : 'Edit'}
                           >
                             <Pencil className="w-4 h-4" />
                           </button>
@@ -2452,8 +2470,9 @@ export const SynthesisColumn = ({
                         <>
                           <button
                             onClick={() => setEditingSection('allergies')}
-                            className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors"
-                            title="Edit"
+                            disabled={isRecording}
+                            className={`p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors ${isRecording ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            title={isRecording ? 'Cannot edit while recording' : 'Edit'}
                           >
                             <Pencil className="w-4 h-4" />
                           </button>
@@ -2621,8 +2640,9 @@ export const SynthesisColumn = ({
                         <>
                           <button
                             onClick={() => setEditingSection('socialFamilyHistory')}
-                            className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors"
-                            title="Edit"
+                            disabled={isRecording}
+                            className={`p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors ${isRecording ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            title={isRecording ? 'Cannot edit while recording' : 'Edit'}
                           >
                             <Pencil className="w-4 h-4" />
                           </button>
@@ -2752,8 +2772,9 @@ export const SynthesisColumn = ({
                           <>
                             <button
                               onClick={() => setEditingSection('counseling')}
-                              className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors"
-                              title="Edit"
+                              disabled={isRecording}
+                              className={`p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors ${isRecording ? 'opacity-50 cursor-not-allowed' : ''}`}
+                              title={isRecording ? 'Cannot edit while recording' : 'Edit'}
                             >
                               <Pencil className="w-4 h-4" />
                             </button>
@@ -2866,8 +2887,9 @@ export const SynthesisColumn = ({
                           <>
                             <button
                               onClick={() => setEditingSection('disposition')}
-                              className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors"
-                              title="Edit"
+                              disabled={isRecording}
+                              className={`p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors ${isRecording ? 'opacity-50 cursor-not-allowed' : ''}`}
+                              title={isRecording ? 'Cannot edit while recording' : 'Edit'}
                             >
                               <Pencil className="w-4 h-4" />
                             </button>

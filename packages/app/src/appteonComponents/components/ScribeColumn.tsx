@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
-import { ChevronDown, ChevronRight, FileText, AudioLines, Clock } from 'lucide-react';
+import { ChevronDown, ChevronRight, FileText, AudioLines, Clock, Pause, Play, XCircle } from 'lucide-react';
 import { useMedplum } from '@medplum/react';
 import { cn } from '../helpers/utils';
 import { RecordButton } from './RecordButton';
@@ -8,6 +8,7 @@ import { WaveformVisualizer } from './WaveformVisualizer';
 import { TranscriptionArea } from './TranscriptionArea';
 import { TranscriptModal } from '../modals/TranscriptModal';
 import { AudioPlayerModal } from '../modals/AudioPlayerModal';
+import { useRecordingContext } from '../contexts/RecordingContext';
 
 interface ScribeColumnProps {
   patientId: string | null;
@@ -26,6 +27,11 @@ const httpBase = `${process.env.MEDPLUM_BASE_URL || ''}`;
 const UPLOAD_AUDIO_URL = `${httpBase}/api/medai/medplum/healthscribe/upload-audio`;
 const START_JOB = `${httpBase}/api/medai/medplum/healthscribe/batch/start`;
 const ASYNC_TRANSCRIBE_URL = `${httpBase}/api/medai/medplum/healthscribe/async-transcribe`;
+
+// Maximum recording duration: 1 hour (3600 seconds)
+const MAX_RECORDING_DURATION_SECONDS = 3600;
+// Keepalive interval for paused state (send every 10 seconds)
+const KEEPALIVE_INTERVAL_MS = 10000;
 
 const getWebSocketUrl = () => {
   if (typeof window === 'undefined') return 'wss://healthai.appteon.ai/ws/soniox';
@@ -60,7 +66,10 @@ export const ScribeColumn = ({
   onGenerateSynthesis,
 }: ScribeColumnProps) => {
   const medplum = useMedplum();
-  const [isRecording, setIsRecording] = useState(false);
+  const recordingContext = useRecordingContext();
+  const [isRecording, setIsRecordingLocal] = useState(false);
+  const [isPaused, setIsPausedLocal] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [showPreviousSummaries, setShowPreviousSummaries] = useState(false);
   const [liveTranscript, setLiveTranscript] = useState('');
   const [_segments, setSegments] = useState<TranscriptSegment[]>([]);
@@ -71,6 +80,25 @@ export const ScribeColumn = ({
   const [error, setError] = useState<string | null>(null);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+
+  // Flag to track if recording was cancelled (to skip post-processing)
+  const isCancelledRef = useRef(false);
+  // Keepalive timer ref for paused state
+  const keepaliveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Ref for paused state (for WebSocket handler access)
+  const isPausedRef = useRef(false);
+
+  // Sync local recording state with context
+  const setIsRecording = (value: boolean) => {
+    setIsRecordingLocal(value);
+    recordingContext.setIsRecording(value);
+  };
+
+  const setIsPaused = (value: boolean) => {
+    setIsPausedLocal(value);
+    isPausedRef.current = value;
+    recordingContext.setIsPaused(value);
+  };
 
   // Helper function for authenticated fetch calls
   const authenticatedFetch = async (url: string, options: RequestInit = {}): Promise<Response> => {
@@ -389,9 +417,154 @@ export const ScribeColumn = ({
       clearInterval(timer.current);
       timer.current = null;
     }
+    if (keepaliveTimerRef.current) {
+      clearInterval(keepaliveTimerRef.current);
+      keepaliveTimerRef.current = null;
+    }
     try {
       wsRef.current?.close();
     } catch {}
+    setIsPaused(false);
+    isCancelledRef.current = false;
+  }
+
+  // Pause recording - stop capturing audio but keep WebSocket alive with keepalive packets
+  function pauseRecording() {
+    if (!isRecording || isPaused) return;
+
+    setIsPaused(true);
+
+    // Pause the MediaRecorder
+    if (mediaRecorder.current && mediaRecorder.current.state === 'recording') {
+      try {
+        mediaRecorder.current.pause();
+      } catch (e) {
+        console.warn('Failed to pause MediaRecorder:', e);
+      }
+    }
+
+    // Stop the duration timer
+    if (timer.current) {
+      clearInterval(timer.current);
+      timer.current = null;
+    }
+
+    // Start sending keepalive packets to Soniox
+    keepaliveTimerRef.current = setInterval(() => {
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        try {
+          // Send a keepalive JSON message
+          wsRef.current.send(JSON.stringify({ action: 'keepalive' }));
+        } catch (e) {
+          console.warn('Failed to send keepalive:', e);
+        }
+      }
+    }, KEEPALIVE_INTERVAL_MS);
+
+    setLiveTranscript((prev) => prev + '\n\n[Recording paused]');
+  }
+
+  // Resume recording after pause
+  function resumeRecording() {
+    if (!isRecording || !isPaused) return;
+
+    setIsPaused(false);
+
+    // Stop keepalive timer
+    if (keepaliveTimerRef.current) {
+      clearInterval(keepaliveTimerRef.current);
+      keepaliveTimerRef.current = null;
+    }
+
+    // Resume the MediaRecorder
+    if (mediaRecorder.current && mediaRecorder.current.state === 'paused') {
+      try {
+        mediaRecorder.current.resume();
+      } catch (e) {
+        console.warn('Failed to resume MediaRecorder:', e);
+      }
+    }
+
+    // Restart the duration timer
+    timer.current = setInterval(() => setDuration((d) => d + 1), 1000);
+
+    setLiveTranscript((prev) => {
+      // Remove the [Recording paused] marker
+      const withoutPaused = prev.replace(/\n\n\[Recording paused\]$/, '');
+      return withoutPaused + '\n\n[Recording resumed]';
+    });
+  }
+
+  // Cancel recording - discard everything and don't trigger any processing
+  function cancelRecording() {
+    if (!isRecording) return;
+
+    isCancelledRef.current = true;
+
+    // Stop all timers
+    if (timer.current) {
+      clearInterval(timer.current);
+      timer.current = null;
+    }
+    if (keepaliveTimerRef.current) {
+      clearInterval(keepaliveTimerRef.current);
+      keepaliveTimerRef.current = null;
+    }
+
+    // Stop MediaRecorder without processing
+    if (mediaRecorder.current && mediaRecorder.current.state !== 'inactive') {
+      try {
+        mediaRecorder.current.stop();
+      } catch {}
+    }
+
+    // Stop media stream
+    try {
+      stream.current?.getTracks().forEach((t) => t.stop());
+    } catch {}
+
+    // Close WebSocket without sending complete message
+    try {
+      wsRef.current?.close();
+    } catch {}
+
+    // Clear all recording state
+    chunks.current = [];
+    setIsRecording(false);
+    setIsPaused(false);
+    setDuration(0);
+    setLiveTranscript('');
+    setSegments([]);
+    setShowCancelConfirm(false);
+    setIsProcessing(false);
+
+    // Reset cancelled flag after cleanup
+    setTimeout(() => {
+      isCancelledRef.current = false;
+    }, 100);
+  }
+
+  // Handle cancel button click - auto-pause and show confirmation
+  function handleCancelClick() {
+    // Auto-pause the recording while showing confirmation dialog
+    if (isRecording && !isPaused) {
+      pauseRecording();
+    }
+    setShowCancelConfirm(true);
+  }
+
+  // Confirm cancellation
+  function confirmCancel() {
+    cancelRecording();
+  }
+
+  // Dismiss cancellation dialog - auto-resume if was recording
+  function dismissCancel() {
+    setShowCancelConfirm(false);
+    // Auto-resume the recording if it was paused by the cancel dialog
+    if (isRecording && isPaused) {
+      resumeRecording();
+    }
   }
 
   function connectWebSocket() {
@@ -408,6 +581,11 @@ export const ScribeColumn = ({
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
+
+          // Ignore transcription messages when paused (but allow status messages)
+          if (isPausedRef.current && (data.status === 'partial' || data.status === 'complete')) {
+            return;
+          }
 
           if (data.status === 'connected') {
             setLiveTranscript('Connected. Ready to record...');
@@ -499,6 +677,7 @@ export const ScribeColumn = ({
     setDuration(0);
     setLiveTranscript('Connecting to transcription service...');
     setSegments([]);
+    isCancelledRef.current = false;
 
     try {
       connectWebSocket();
@@ -547,7 +726,21 @@ export const ScribeColumn = ({
 
       setIsRecording(true);
       setLiveTranscript('Recording... listening...');
-      timer.current = setInterval(() => setDuration((d) => d + 1), 1000);
+
+      // Timer with 1-hour cap check
+      timer.current = setInterval(() => {
+        setDuration((d) => {
+          const newDuration = d + 1;
+          // Auto-stop at 1 hour
+          if (newDuration >= MAX_RECORDING_DURATION_SECONDS) {
+            console.log('Recording reached 1 hour limit, auto-stopping...');
+            setLiveTranscript((prev) => prev + '\n\n[Recording reached 1 hour limit - auto-stopping]');
+            // Schedule stopRecording for next tick to avoid state issues
+            setTimeout(() => stopRecording(), 0);
+          }
+          return newDuration;
+        });
+      }, 1000);
     } catch (e: any) {
       setError(e?.message || 'Failed to start recording');
       try {
@@ -559,13 +752,25 @@ export const ScribeColumn = ({
   async function stopRecording() {
     if (!isRecording) return;
 
-    // Stop the timer first
+    // If recording was cancelled, don't process - just exit
+    if (isCancelledRef.current) {
+      return;
+    }
+
+    // Stop the duration timer
     if (timer.current) {
       clearInterval(timer.current);
       timer.current = null;
     }
 
+    // Stop keepalive timer if paused
+    if (keepaliveTimerRef.current) {
+      clearInterval(keepaliveTimerRef.current);
+      keepaliveTimerRef.current = null;
+    }
+
     setIsRecording(false);
+    setIsPaused(false);
     setIsProcessing(true);
     setLiveTranscript('Finalizing recording...');
 
@@ -919,21 +1124,81 @@ export const ScribeColumn = ({
                   isRecording ? 'pb-4' : '',
                 )}
               >
-                <RecordButton
-                  isRecording={isRecording}
-                  isProcessing={isProcessing}
-                  onToggle={handleToggleRecording}
-                />
+                {/* Recording Controls */}
+                <div className="flex items-center gap-3">
+                  {/* Pause/Resume Button - only show when recording */}
+                  {isRecording && (
+                    <button
+                      onClick={isPaused ? resumeRecording : pauseRecording}
+                      className={cn(
+                        'w-10 h-10 rounded-full flex items-center justify-center transition-all duration-200',
+                        isPaused
+                          ? 'bg-emerald-500 hover:bg-emerald-600 text-white'
+                          : 'bg-amber-500 hover:bg-amber-600 text-white'
+                      )}
+                      title={isPaused ? 'Resume recording' : 'Pause recording'}
+                    >
+                      {isPaused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
+                    </button>
+                  )}
+
+                  {/* Main Record/Stop Button */}
+                  <RecordButton
+                    isRecording={isRecording}
+                    isProcessing={isProcessing}
+                    onToggle={handleToggleRecording}
+                  />
+
+                  {/* Cancel Button - only show when recording */}
+                  {isRecording && (
+                    <button
+                      onClick={handleCancelClick}
+                      className="w-10 h-10 rounded-full flex items-center justify-center bg-gray-500 hover:bg-gray-600 text-white transition-all duration-200"
+                      title="Cancel recording"
+                    >
+                      <XCircle className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+
                 <p className="mt-3 text-sm text-muted-foreground">
                   {isRecording
-                    ? `Recording... ${formatDuration(duration)}`
+                    ? isPaused
+                      ? `Paused at ${formatDuration(duration)}`
+                      : `Recording... ${formatDuration(duration)} (max 1hr)`
                     : isProcessing
                     ? 'Processing and generating notes...'
                     : 'Click to start recording'}
                 </p>
 
-                {isRecording && <WaveformVisualizer />}
+                {isRecording && !isPaused && <WaveformVisualizer />}
               </div>
+
+              {/* Cancel Confirmation Dialog */}
+              {showCancelConfirm && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                  <div className="bg-card border border-border rounded-lg p-6 max-w-sm mx-4 shadow-xl">
+                    <h3 className="text-lg font-semibold text-foreground mb-2">Cancel Recording?</h3>
+                    <p className="text-sm text-muted-foreground mb-4">
+                      This will discard the current recording and transcript. This action cannot be undone.
+                    </p>
+                    <div className="flex justify-end gap-3">
+                      <button
+                        onClick={dismissCancel}
+                        className="px-4 py-2 text-sm font-medium text-foreground bg-muted hover:bg-muted/80 rounded-md transition-colors"
+                      >
+                        Keep Recording
+                      </button>
+                      <button
+                        onClick={confirmCancel}
+                        className="px-4 py-2 text-sm font-medium text-white bg-destructive hover:bg-destructive/90 rounded-md transition-colors"
+                      >
+                        Cancel Recording
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {error && (
                 <div className="mb-4 p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-sm text-destructive">
