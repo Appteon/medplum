@@ -116,6 +116,40 @@ export const ScribeColumn = ({
     });
   };
 
+  // Handle deleting an audio recording
+  const handleDeleteRecording = async (jobName: string): Promise<void> => {
+    try {
+      const url = `${httpBase}/api/medai/medplum/healthscribe/audio/${encodeURIComponent(jobName)}`;
+      const resp = await authenticatedFetch(url, { method: 'DELETE' });
+
+      if (!resp.ok) {
+        const errorText = await resp.text();
+        throw new Error(`Failed to delete recording (${resp.status}): ${errorText}`);
+      }
+
+      // Mark recording as deleted in local state
+      setDeletedRecordings((prev) => new Set(prev).add(jobName));
+
+      // Clean up preloaded audio URL if it exists
+      if (preloadedAudio[jobName]) {
+        try {
+          URL.revokeObjectURL(preloadedAudio[jobName].url);
+        } catch {}
+        setPreloadedAudio((prev) => {
+          const updated = { ...prev };
+          delete updated[jobName];
+          return updated;
+        });
+      }
+
+      console.log('Recording deleted successfully:', jobName);
+    } catch (e: any) {
+      console.error('Error deleting recording:', e);
+      setError(e?.message || 'Failed to delete recording');
+      throw e;
+    }
+  };
+
   // Artifact loading state (used for loading indicators in original implementation)
   const [_loadingArtifact, setLoadingArtifact] = useState<string | null>(null);
 
@@ -128,6 +162,9 @@ export const ScribeColumn = ({
   const [modalAudioDuration, setModalAudioDuration] = useState<number | undefined>(undefined);
   // NEW: track which job is currently open in the audio modal
   const [modalJobName, setModalJobName] = useState<string | null>(null);
+
+  // Track deleted recordings by job name
+  const [deletedRecordings, setDeletedRecordings] = useState<Set<string>>(new Set());
 
   // Preloaded audio data: jobName -> { url, duration }
   const [preloadedAudio, setPreloadedAudio] = useState<Record<string, { url: string; duration: number }>>({});
@@ -1295,88 +1332,94 @@ export const ScribeColumn = ({
                             <FileText className="w-4 h-4" />
                           </button>
 
-                          <button
-                            title="Play audio"
-                            onClick={async () => {
-                              const job = currentSummary.jobName || currentSummary.id;
-                              if (!job) {
-                                setError('Error: No job identifier found');
-                                return;
-                              }
-
-                              setModalJobName(job);
-
-                              // If already preloaded, use it immediately
-                              const preloaded = preloadedAudio[job];
-                              if (preloaded) {
-                                console.log(
-                                  'Using preloaded audio for job:',
-                                  job,
-                                  'duration:',
-                                  preloaded.duration,
-                                );
-                                setModalAudioUrl(preloaded.url);
-                                setModalAudioDuration(preloaded.duration);
-                                setModalTitle(`Recording - ${currentSummary.date}`);
-                                setShowAudioModal(true);
-                                return;
-                              }
-
-                              console.log('Fetching audio for job:', job);
-                              setLoadingArtifact(job);
-                              try {
-                                const baseUrl = `${httpBase}/api/medai/medplum/healthscribe/audio/${encodeURIComponent(job)}`;
-
-                                // Fetch metadata for duration
-                                let duration: number | undefined;
-                                try {
-                                  const metaResp = await authenticatedFetch(`${baseUrl}?metadata=true`, { method: 'GET' });
-                                  if (metaResp.ok) {
-                                    const meta = await metaResp.json();
-                                    if (meta.duration !== undefined && isFinite(Number(meta.duration))) {
-                                      duration = Number(meta.duration);
-                                    }
+                          {(() => {
+                            const job = currentSummary.jobName || currentSummary.id;
+                            const isDeleted = job ? deletedRecordings.has(job) : false;
+                            return (
+                              <button
+                                title={isDeleted ? 'Recording deleted' : 'Play audio'}
+                                disabled={isDeleted}
+                                onClick={async () => {
+                                  if (!job) {
+                                    setError('Error: No job identifier found');
+                                    return;
                                   }
-                                } catch (e) {
-                                  console.warn('Failed to fetch audio metadata:', e);
-                                }
 
-                                // Fetch actual audio data
-                                const resp = await authenticatedFetch(baseUrl, { method: 'GET' });
-                                if (!resp.ok) {
-                                  const t = await resp.text();
-                                  console.error('Failed to fetch audio:', resp.status, t);
-                                  setError(`Failed to load audio (${resp.status}): ${t}`);
-                                  return;
-                                }
+                                  setModalJobName(job);
 
-                                const blob = await resp.blob();
-                                const audioUrl = URL.createObjectURL(blob);
+                                  // If already preloaded, use it immediately
+                                  const preloaded = preloadedAudio[job];
+                                  if (preloaded) {
+                                    console.log(
+                                      'Using preloaded audio for job:',
+                                      job,
+                                      'duration:',
+                                      preloaded.duration,
+                                    );
+                                    setModalAudioUrl(preloaded.url);
+                                    setModalAudioDuration(preloaded.duration);
+                                    setModalTitle(`Recording - ${currentSummary.date}`);
+                                    setShowAudioModal(true);
+                                    return;
+                                  }
 
-                                // Cache for future use
-                                if (duration !== undefined) {
-                                  setPreloadedAudio((prev) => ({
-                                    ...prev,
-                                    [job]: { url: audioUrl, duration },
-                                  }));
-                                }
+                                  console.log('Fetching audio for job:', job);
+                                  setLoadingArtifact(job);
+                                  try {
+                                    const baseUrl = `${httpBase}/api/medai/medplum/healthscribe/audio/${encodeURIComponent(job)}`;
 
-                                // Open modal
-                                setModalAudioUrl(audioUrl);
-                                setModalAudioDuration(duration);
-                                setModalTitle(`Recording - ${currentSummary.date}`);
-                                setShowAudioModal(true);
-                              } catch (e: any) {
-                                console.error('Error fetching audio:', e);
-                                setError(e?.message || 'Failed to load audio');
-                              } finally {
-                                setLoadingArtifact(null);
-                              }
-                            }}
-                            className="p-1 rounded hover:bg-muted/50"
-                          >
-                            <AudioLines className="w-4 h-4" />
-                          </button>
+                                    // Fetch metadata for duration
+                                    let duration: number | undefined;
+                                    try {
+                                      const metaResp = await authenticatedFetch(`${baseUrl}?metadata=true`, { method: 'GET' });
+                                      if (metaResp.ok) {
+                                        const meta = await metaResp.json();
+                                        if (meta.duration !== undefined && isFinite(Number(meta.duration))) {
+                                          duration = Number(meta.duration);
+                                        }
+                                      }
+                                    } catch (e) {
+                                      console.warn('Failed to fetch audio metadata:', e);
+                                    }
+
+                                    // Fetch actual audio data
+                                    const resp = await authenticatedFetch(baseUrl, { method: 'GET' });
+                                    if (!resp.ok) {
+                                      const t = await resp.text();
+                                      console.error('Failed to fetch audio:', resp.status, t);
+                                      setError(`Failed to load audio (${resp.status}): ${t}`);
+                                      return;
+                                    }
+
+                                    const blob = await resp.blob();
+                                    const audioUrl = URL.createObjectURL(blob);
+
+                                    // Cache for future use
+                                    if (duration !== undefined) {
+                                      setPreloadedAudio((prev) => ({
+                                        ...prev,
+                                        [job]: { url: audioUrl, duration },
+                                      }));
+                                    }
+
+                                    // Open modal
+                                    setModalAudioUrl(audioUrl);
+                                    setModalAudioDuration(duration);
+                                    setModalTitle(`Recording - ${currentSummary.date}`);
+                                    setShowAudioModal(true);
+                                  } catch (e: any) {
+                                    console.error('Error fetching audio:', e);
+                                    setError(e?.message || 'Failed to load audio');
+                                  } finally {
+                                    setLoadingArtifact(null);
+                                  }
+                                }}
+                                className={`p-1 rounded ${isDeleted ? 'opacity-40 cursor-not-allowed' : 'hover:bg-muted/50'}`}
+                              >
+                                <AudioLines className="w-4 h-4" />
+                              </button>
+                            );
+                          })()}
                         </div>
                       </div>
 
@@ -1545,88 +1588,94 @@ export const ScribeColumn = ({
                                 <FileText className="w-4 h-4" />
                               </button>
 
-                              <button
-                                title="Play audio"
-                                onClick={async () => {
-                                  const id = entry.id;
-                                  const job = (entry as any).jobName || id;
-                                  if (!job) {
-                                    setError('Error: No job identifier found');
-                                    return;
-                                  }
-
-                                  setModalJobName(job);
-
-                                  const preloaded = preloadedAudio[job];
-                                  if (preloaded) {
-                                    console.log(
-                                      'Using preloaded audio for history job:',
-                                      job,
-                                      'duration:',
-                                      preloaded.duration,
-                                    );
-                                    setModalAudioUrl(preloaded.url);
-                                    setModalAudioDuration(preloaded.duration);
-                                    setModalTitle(`Recording - ${entry.date}`);
-                                    setShowAudioModal(true);
-                                    return;
-                                  }
-
-                                  console.log('Fetching history audio for job:', job);
-                                  setLoadingArtifact(id);
-                                  try {
-                                    const baseUrl = `${httpBase}/api/medai/medplum/healthscribe/audio/${encodeURIComponent(job)}`;
-
-                                    // Fetch metadata for duration
-                                    let duration: number | undefined;
-                                    try {
-                                      const metaResp = await authenticatedFetch(`${baseUrl}?metadata=true`, { method: 'GET' });
-                                      if (metaResp.ok) {
-                                        const meta = await metaResp.json();
-                                        if (meta.duration !== undefined && isFinite(Number(meta.duration))) {
-                                          duration = Number(meta.duration);
-                                        }
+                              {(() => {
+                                const id = entry.id;
+                                const job = entry.jobName || id;
+                                const isDeleted = job ? deletedRecordings.has(job) : false;
+                                return (
+                                  <button
+                                    title={isDeleted ? 'Recording deleted' : 'Play audio'}
+                                    disabled={isDeleted}
+                                    onClick={async () => {
+                                      if (!job) {
+                                        setError('Error: No job identifier found');
+                                        return;
                                       }
-                                    } catch (e) {
-                                      console.warn('Failed to fetch audio metadata:', e);
-                                    }
 
-                                    // Fetch actual audio data
-                                    const resp = await authenticatedFetch(baseUrl, { method: 'GET' });
-                                    if (!resp.ok) {
-                                      const t = await resp.text();
-                                      console.error('Failed to fetch history audio:', resp.status, t);
-                                      setError(`Failed to load audio (${resp.status}): ${t}`);
-                                      return;
-                                    }
+                                      setModalJobName(job);
 
-                                    const blob = await resp.blob();
-                                    const audioUrl = URL.createObjectURL(blob);
+                                      const preloaded = preloadedAudio[job];
+                                      if (preloaded) {
+                                        console.log(
+                                          'Using preloaded audio for history job:',
+                                          job,
+                                          'duration:',
+                                          preloaded.duration,
+                                        );
+                                        setModalAudioUrl(preloaded.url);
+                                        setModalAudioDuration(preloaded.duration);
+                                        setModalTitle(`Recording - ${entry.date}`);
+                                        setShowAudioModal(true);
+                                        return;
+                                      }
 
-                                    // Cache for future use
-                                    if (duration !== undefined) {
-                                      setPreloadedAudio((prev) => ({
-                                        ...prev,
-                                        [job]: { url: audioUrl, duration },
-                                      }));
-                                    }
+                                      console.log('Fetching history audio for job:', job);
+                                      setLoadingArtifact(id);
+                                      try {
+                                        const baseUrl = `${httpBase}/api/medai/medplum/healthscribe/audio/${encodeURIComponent(job)}`;
 
-                                    // Open modal
-                                    setModalAudioUrl(audioUrl);
-                                    setModalAudioDuration(duration);
-                                    setModalTitle(`Recording - ${entry.date}`);
-                                    setShowAudioModal(true);
-                                  } catch (e: any) {
-                                    console.error('Error fetching history audio:', e);
-                                    setError(e?.message || 'Failed to load audio');
-                                  } finally {
-                                    setLoadingArtifact(null);
-                                  }
-                                }}
-                                className="p-1 rounded hover:bg-muted/50"
-                              >
-                                <AudioLines className="w-4 h-4" />
-                              </button>
+                                        // Fetch metadata for duration
+                                        let duration: number | undefined;
+                                        try {
+                                          const metaResp = await authenticatedFetch(`${baseUrl}?metadata=true`, { method: 'GET' });
+                                          if (metaResp.ok) {
+                                            const meta = await metaResp.json();
+                                            if (meta.duration !== undefined && isFinite(Number(meta.duration))) {
+                                              duration = Number(meta.duration);
+                                            }
+                                          }
+                                        } catch (e) {
+                                          console.warn('Failed to fetch audio metadata:', e);
+                                        }
+
+                                        // Fetch actual audio data
+                                        const resp = await authenticatedFetch(baseUrl, { method: 'GET' });
+                                        if (!resp.ok) {
+                                          const t = await resp.text();
+                                          console.error('Failed to fetch history audio:', resp.status, t);
+                                          setError(`Failed to load audio (${resp.status}): ${t}`);
+                                          return;
+                                        }
+
+                                        const blob = await resp.blob();
+                                        const audioUrl = URL.createObjectURL(blob);
+
+                                        // Cache for future use
+                                        if (duration !== undefined) {
+                                          setPreloadedAudio((prev) => ({
+                                            ...prev,
+                                            [job]: { url: audioUrl, duration },
+                                          }));
+                                        }
+
+                                        // Open modal
+                                        setModalAudioUrl(audioUrl);
+                                        setModalAudioDuration(duration);
+                                        setModalTitle(`Recording - ${entry.date}`);
+                                        setShowAudioModal(true);
+                                      } catch (e: any) {
+                                        console.error('Error fetching history audio:', e);
+                                        setError(e?.message || 'Failed to load audio');
+                                      } finally {
+                                        setLoadingArtifact(null);
+                                      }
+                                    }}
+                                    className={`p-1 rounded ${isDeleted ? 'opacity-40 cursor-not-allowed' : 'hover:bg-muted/50'}`}
+                                  >
+                                    <AudioLines className="w-4 h-4" />
+                                  </button>
+                                );
+                              })()}
                             </div>
                           </div>
 
@@ -1711,6 +1760,8 @@ export const ScribeColumn = ({
         preloadedDuration={
           modalAudioDuration ?? (modalJobName ? preloadedAudio[modalJobName]?.duration : undefined)
         }
+        jobName={modalJobName ?? undefined}
+        onDelete={handleDeleteRecording}
       />
     </div>
   );
