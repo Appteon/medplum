@@ -21,7 +21,9 @@ export interface SmartClientConfig {
   /** Key ID (kid) for the signing key */
   keyId?: string;
   /** Signing algorithm (default: RS384) */
-  algorithm?: 'RS384' | 'ES384';
+  algorithm?: 'RS256' | 'RS384' | 'ES384';
+  /** JWKS URL where the public key can be found (optional - included in JWT header as jku) */
+  jwksUrl?: string;
   /** OAuth scopes to request (optional - defaults to common system scopes) */
   scopes?: string;
 }
@@ -234,6 +236,16 @@ export class SmartBackendClient {
     // Import the private key
     const privateKey = await importPKCS8(this.config.privateKeyPem, this.config.algorithm!);
 
+    // Build JWT header - include jku if JWKS URL is provided
+    const header: { alg: string; typ: string; kid?: string; jku?: string } = {
+      alg: this.config.algorithm!,
+      typ: 'JWT',
+      kid: this.config.keyId,
+    };
+    if (this.config.jwksUrl) {
+      header.jku = this.config.jwksUrl;
+    }
+
     // Build and sign the JWT
     const jwt = await new SignJWT({
       iss: this.config.clientId,
@@ -241,11 +253,7 @@ export class SmartBackendClient {
       aud: this.config.tokenEndpoint,
       jti: randomUUID(),
     })
-      .setProtectedHeader({
-        alg: this.config.algorithm!,
-        typ: 'JWT',
-        kid: this.config.keyId,
-      })
+      .setProtectedHeader(header)
       .setIssuedAt(now)
       .setExpirationTime(exp)
       .sign(privateKey);

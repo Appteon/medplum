@@ -115,10 +115,10 @@ services:
 
       # ========== OPTION 1: Epic Sandbox (CURRENTLY ACTIVE) ==========
       # Uses JWT authentication with private key
-      EHR_FHIR_BASE_URL: 'https://fhir.epic.com/interconnect-fhir-oauth/api/FHIR/R4'
-      EHR_CLIENT_ID: 'f0bd04ce-c3da-4b3c-ae97-365f5848f4e6'
-      EHR_GROUP_ID: 'e3iabhmS8rsueyz7vaimuiaSmfGvi.QwjVXJANlPOgR83'  # Required for Epic bulk export
-      EHR_IDENTIFIER_SYSTEM: 'https://open.epic.com/fhir'
+      # EHR_FHIR_BASE_URL: 'https://fhir.epic.com/interconnect-fhir-oauth/api/FHIR/R4'
+      # EHR_CLIENT_ID: 'f0bd04ce-c3da-4b3c-ae97-365f5848f4e6'
+      # EHR_GROUP_ID: 'e3iabhmS8rsueyz7vaimuiaSmfGvi.QwjVXJANlPOgR83'  # Required for Epic bulk export
+      # EHR_IDENTIFIER_SYSTEM: 'https://open.epic.com/fhir'
       EHR_PRIVATE_KEY: |
         -----BEGIN PRIVATE KEY-----
         MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDInf/bWBwH8q3i
@@ -149,25 +149,27 @@ services:
         3iLf90E0eefIqgZ/1OXAxPrt
         -----END PRIVATE KEY-----
       EHR_KEY_ID: 'fpjEcqpWKazjMCPu'  # From your JWKS
-      # Epic-specific scopes for bulk data export
-      EHR_SCOPES: 'system/Patient.read system/AllergyIntolerance.read system/Binary.read system/CarePlan.read system/Condition.read system/DiagnosticReport.read system/DocumentReference.read system/Encounter.read system/Immunization.read system/Medication.read system/MedicationRequest.read system/MedicationStatement.read system/Observation.read system/Practitioner.read system/ServiceRequest.read'
+      EHR_ALGORITHM: 'RS256'  # Must match algorithm in JWKS
+      # EHR_JWKS_URL: 'https://aprakash-appteon.github.io/epic-jwks/jwks.json'  # JWKS URL included in JWT header (jku) - disabled to use PF's registered URL
+      # # Epic-specific scopes for bulk data export
+      # EHR_SCOPES: 'system/Patient.read system/AllergyIntolerance.read system/Binary.read system/CarePlan.read system/Condition.read system/DiagnosticReport.read system/DocumentReference.read system/Encounter.read system/Immunization.read system/Medication.read system/MedicationRequest.read system/MedicationStatement.read system/Observation.read system/Practitioner.read system/ServiceRequest.read'
       # Comment out client_secret when using Epic:
       # EHR_CLIENT_SECRET: ''
 
       # ========== OPTION 2: Practice Fusion Sandbox ==========
       # Uncomment these lines and comment out Epic configuration above to switch
       # Uses client_secret authentication (simpler)
-      # EHR_FHIR_BASE_URL: 'https://api-sandbox.practicefusion.com/fhir/r4/v1'
-      # EHR_CLIENT_ID: '5d068de1-4cb1-45bf-b9ff-09fa51669ef8'
+      EHR_FHIR_BASE_URL: 'https://api.practicefusion.com/fhir/r4/v1/0f4bdecd-1549-4acf-8255-2012323dc667'
+      EHR_CLIENT_ID: '5d068de1-4cb1-45bf-b9ff-09fa51669ef8'
       # EHR_CLIENT_SECRET: '4uRSYIg0f955uhwG480npbBiwk3argUkck5IKH+eC68='
-      # EHR_IDENTIFIER_SYSTEM: 'https://practicefusion.com/fhir'
-      # Comment out these when using Practice Fusion (doesn't need them):
-      # EHR_GROUP_ID: ''
-      # EHR_PRIVATE_KEY: ''
-      # EHR_KEY_ID: ''
+      EHR_IDENTIFIER_SYSTEM: 'https://practicefusion.com/fhir'
+      EHR_GROUP_ID: '6f637d01-06bc-4fde-a45b-ae2ab741b91f'
 
-      # Resource types to export from EHR
-      EHR_RESOURCE_TYPES: 'Patient,AllergyIntolerance,Binary,CarePlan,Condition,DiagnosticReport,DocumentReference,Encounter,Immunization,Medication,MedicationRequest,MedicationStatement,Observation,Practitioner,ServiceRequest'
+      # Practice Fusion approved scopes (tested and verified)
+      EHR_SCOPES: 'system/AllergyIntolerance.read system/CarePlan.read system/Condition.read system/DiagnosticReport.read system/DocumentReference.read system/Encounter.read system/Immunization.read system/MedicationRequest.read system/Observation.read system/Patient.read system/Practitioner.read'
+
+      # Resource types to export from EHR (matching approved scopes)
+      EHR_RESOURCE_TYPES: 'Patient,AllergyIntolerance,CarePlan,Condition,DiagnosticReport,DocumentReference,Encounter,Immunization,MedicationRequest,Observation,Practitioner'
 
     healthcheck:
       test:

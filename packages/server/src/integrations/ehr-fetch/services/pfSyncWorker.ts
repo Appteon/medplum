@@ -7,6 +7,7 @@ import { AuthenticatedRequestContext } from '../../../context.js';
 import { getSystemRepo, Repository } from '../../../fhir/repo.js';
 import { SmartBackendClient, discoverSmartEndpoints } from '../auth/smartClient.js';
 import { executeBulkExport } from '../bulk/bulkExportClient.js';
+import { executeGroupSearchSync } from '../bulk/groupSearchSync.js';
 import { EHR_IDENTIFIER_SYSTEM, getResourceIdentifierSystem, DEFAULT_EXPORT_RESOURCE_TYPES } from '../constants.js';
 
 // Configuration from environment variables
@@ -18,6 +19,8 @@ const EHR_PRIVATE_KEY = process.env.EHR_PRIVATE_KEY || process.env.PF_PRIVATE_KE
 const EHR_KEY_ID = process.env.EHR_KEY_ID || process.env.PF_KEY_ID;
 const EHR_GROUP_ID = process.env.EHR_GROUP_ID; // Optional: for group-based bulk export
 const EHR_SCOPES = process.env.EHR_SCOPES; // Optional: custom OAuth scopes
+const EHR_ALGORITHM = process.env.EHR_ALGORITHM as 'RS384' | 'RS256' | 'ES384' | undefined; // JWT signing algorithm
+const EHR_JWKS_URL = process.env.EHR_JWKS_URL; // Optional: JWKS URL to include in JWT header (jku)
 const EHR_TARGET_PROJECT_ID = process.env.EHR_TARGET_PROJECT_ID; // Target Medplum project for synced resources
 const EHR_RESOURCE_TYPES = (process.env.EHR_RESOURCE_TYPES || process.env.PF_RESOURCE_TYPES)
   ? (process.env.EHR_RESOURCE_TYPES || process.env.PF_RESOURCE_TYPES)!.split(',').map((t) => t.trim())
@@ -93,21 +96,58 @@ export async function syncFromPracticeFusion(): Promise<void> {
       clientSecret: EHR_CLIENT_SECRET,
       privateKeyPem: EHR_PRIVATE_KEY,
       keyId: EHR_KEY_ID,
+      algorithm: EHR_ALGORITHM,
+      jwksUrl: EHR_JWKS_URL,
       scopes: EHR_SCOPES,
     });
 
     const accessToken = await smartClient.getAccessToken();
     console.log('[EHRSync] Successfully authenticated');
 
-    // Execute bulk export
-    console.log('[EHRSync] Starting bulk data export...');
-    const { resources, transactionTime } = await executeBulkExport({
-      fhirBaseUrl: EHR_FHIR_BASE_URL,
-      accessToken,
-      resourceTypes: EHR_RESOURCE_TYPES,
-      groupId: EHR_GROUP_ID, // Uses group-based export if provided
-      since: lastSyncTime || undefined,
-    });
+    // Execute bulk export (with fallback to group search sync if bulk export not available)
+    console.log('[EHRSync] Starting data export...');
+    let resources: Map<string, Resource[]>;
+    let transactionTime: string | undefined;
+
+    try {
+      // Try bulk export first (more efficient for large datasets)
+      console.log('[EHRSync] Attempting bulk data export ($export operation)...');
+      const bulkResult = await executeBulkExport({
+        fhirBaseUrl: EHR_FHIR_BASE_URL,
+        accessToken,
+        resourceTypes: EHR_RESOURCE_TYPES,
+        groupId: EHR_GROUP_ID, // Uses group-based export if provided
+        since: lastSyncTime || undefined,
+      });
+      resources = bulkResult.resources;
+      transactionTime = bulkResult.transactionTime;
+    } catch (bulkError: any) {
+      // Check if bulk export failed due to permission issues (403)
+      const errorMessage = bulkError?.message || '';
+      if (errorMessage.includes('403') || errorMessage.includes('MSG_OP_NOT_ALLOWED') || errorMessage.includes('forbidden')) {
+        console.log('[EHRSync] Bulk export not available (403 Forbidden)');
+        console.log('[EHRSync] Falling back to group-based search sync...');
+
+        if (!EHR_GROUP_ID) {
+          throw new Error('Group-based search sync requires EHR_GROUP_ID to be configured');
+        }
+
+        // Fall back to group search sync (uses standard FHIR search operations)
+        const searchResult = await executeGroupSearchSync({
+          fhirBaseUrl: EHR_FHIR_BASE_URL,
+          accessToken,
+          groupId: EHR_GROUP_ID,
+          resourceTypes: EHR_RESOURCE_TYPES,
+          since: lastSyncTime || undefined,
+        });
+        resources = searchResult.resources;
+        transactionTime = searchResult.transactionTime;
+        console.log(`[EHRSync] Group search sync complete: ${searchResult.patientCount} patients processed`);
+      } else {
+        // Re-throw if it's not a permission issue
+        throw bulkError;
+      }
+    }
 
     // Process and upsert resources
     console.log('[EHRSync] Processing and upserting resources...');
