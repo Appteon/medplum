@@ -174,17 +174,20 @@ export class GroupSearchSync {
 
   /**
    * Search for patients - fallback when Group doesn't have explicit members
+   * Fetches ALL patients from the EHR using pagination
    */
   private async searchPatientsInGroup(): Promise<string[]> {
     const baseUrl = this.config.fhirBaseUrl.replace(/\/$/, '');
     const patientIds: string[] = [];
 
-    // Try to search for all patients (some EHRs support this)
-    // Limit to reasonable count for performance
-    let nextUrl: string | undefined = `${baseUrl}/Patient?_count=100`;
+    // Search for all patients with high page size to minimize pagination
+    // Use _count=500 for efficient pagination
+    let nextUrl: string | undefined = `${baseUrl}/Patient?_count=500`;
+    let pageCount = 0;
 
     while (nextUrl) {
-      console.log(`[GroupSearchSync] Searching patients: ${nextUrl}`);
+      pageCount++;
+      console.log(`[GroupSearchSync] Fetching patient page ${pageCount}: ${nextUrl}`);
 
       const response = await fetch(nextUrl, {
         method: 'GET',
@@ -207,19 +210,20 @@ export class GroupSearchSync {
             patientIds.push(entry.resource.id);
           }
         }
+        console.log(`[GroupSearchSync] Page ${pageCount}: Found ${bundle.entry.length} entries, total patients: ${patientIds.length}`);
       }
 
       // Check for pagination
       const nextLink = bundle.link?.find((l) => l.relation === 'next');
       nextUrl = nextLink?.url;
 
-      // Safety limit
-      if (patientIds.length >= 1000) {
-        console.log('[GroupSearchSync] Reached 1000 patient limit');
-        break;
+      // Log if we're about to continue
+      if (nextUrl) {
+        console.log(`[GroupSearchSync] More results available, continuing to next page...`);
       }
     }
 
+    console.log(`[GroupSearchSync] Patient search complete: ${patientIds.length} total patients fetched across ${pageCount} pages`);
     return patientIds;
   }
 
