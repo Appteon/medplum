@@ -1,10 +1,11 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useMedplum } from '@medplum/react';
 import { Loader } from '@mantine/core';
 import type { Patient as FHIRPatient } from '@medplum/fhirtypes';
 import { ScribeColumn } from './components/ScribeColumn'
 import { SynthesisColumn } from './components/SynthesisColumn';
+import { AuditActions } from './helpers/auditLogger';
 
 interface MedplumPatientDetailProps {
   selectedPatientId: string | null;
@@ -64,6 +65,9 @@ export function MedplumPatientDetail({ selectedPatientId }: MedplumPatientDetail
 
   const httpBase = `${process.env.MEDPLUM_BASE_URL || ''}`;
 
+  // Track if we've logged view for this patient to avoid duplicate logs
+  const lastLoggedPatientIdRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (!selectedPatientId) {
       setPatient(null);
@@ -78,6 +82,15 @@ export function MedplumPatientDetail({ selectedPatientId }: MedplumPatientDetail
       try {
         const data = await medplum.readResource('Patient', selectedPatientId);
         setPatient(data);
+
+        // Log audit event for viewing patient details (only once per patient)
+        if (lastLoggedPatientIdRef.current !== selectedPatientId) {
+          const patientName = data.name?.[0]
+            ? `${data.name[0].given?.join(' ') || ''} ${data.name[0].family || ''}`.trim()
+            : undefined;
+          AuditActions.patientView(medplum, selectedPatientId, patientName);
+          lastLoggedPatientIdRef.current = selectedPatientId;
+        }
       } catch (err) {
         console.error('Failed to load patient:', err);
         setError('Failed to load patient details.');
@@ -240,6 +253,10 @@ export function MedplumPatientDetail({ selectedPatientId }: MedplumPatientDetail
   // immediately without first creating/reading a DocumentReference.
   async function handleGenerateSmartNote(transcriptText?: string, jobName?: string) {
     if (!selectedPatientId) return;
+
+    // Log audit event for synthesis generation
+    AuditActions.synthesisGenerate(medplum, selectedPatientId);
+
     setSmartLoading(true);
     try {
       // If transcriptText and jobName are not provided, fall back to the original flow
@@ -319,6 +336,10 @@ export function MedplumPatientDetail({ selectedPatientId }: MedplumPatientDetail
   // Save Smart Synthesis note
   const handleSaveSmartNote = async (content: string) => {
     if (!selectedPatientId) return;
+
+    // Log audit event for saving synthesis notes
+    AuditActions.noteSave(medplum, selectedPatientId, 'synthesis');
+
     setIsSavingSmart(true);
     try {
       const url = `${httpBase}/api/medai/medplum/smart-synthesis/notes/save`;
@@ -351,6 +372,10 @@ export function MedplumPatientDetail({ selectedPatientId }: MedplumPatientDetail
   // 2. Generate pre-chart notes from the updated data
   async function handleGeneratePreChartNote() {
     if (!selectedPatientId) return;
+
+    // Log audit event for pre-chart generation
+    AuditActions.preChartGenerate(medplum, selectedPatientId);
+
     setPreChartLoading(true);
     setPreChartLoadingStep('ehr-sync');
     try {
@@ -408,6 +433,10 @@ export function MedplumPatientDetail({ selectedPatientId }: MedplumPatientDetail
   // Save Pre-Chart note
   const handleSavePreChartNote = async (content: string) => {
     if (!selectedPatientId) return;
+
+    // Log audit event for saving pre-chart notes
+    AuditActions.noteSave(medplum, selectedPatientId, 'pre-chart');
+
     setIsSavingPreChart(true);
     try {
       const url = `${httpBase}/api/medai/medplum/pre-chart-notes/notes/save`;

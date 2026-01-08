@@ -1,6 +1,8 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
+import { useMedplum } from '@medplum/react';
 import { useRecordingContext } from '../contexts/RecordingContext';
+import { AuditActions } from '../helpers/auditLogger';
 
 // DropdownNote component for previous notes
 interface DropdownNoteProps {
@@ -583,6 +585,7 @@ export const SynthesisColumn = ({
   isSavingPreChart,
   preChartHistory = []
 }: SynthesisColumnProps) => {
+  const medplum = useMedplum();
   // Get recording state from context - editing is disabled while recording
   const { isRecording } = useRecordingContext();
 
@@ -1161,6 +1164,11 @@ export const SynthesisColumn = ({
       await navigator.clipboard.writeText(md);
       setCopiedSection(sectionId);
       setTimeout(() => setCopiedSection(null), 2000);
+
+      // Log audit event for copying notes
+      if (patientId) {
+        AuditActions.noteCopy(medplum, patientId, sectionId);
+      }
     } catch (e) {
       console.error('Copy failed', e);
     }

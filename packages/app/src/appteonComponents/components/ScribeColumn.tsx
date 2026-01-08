@@ -9,6 +9,7 @@ import { TranscriptionArea } from './TranscriptionArea';
 import { TranscriptModal } from '../modals/TranscriptModal';
 import { AudioPlayerModal } from '../modals/AudioPlayerModal';
 import { useRecordingContext } from '../contexts/RecordingContext';
+import { AuditActions } from '../helpers/auditLogger';
 
 interface ScribeColumnProps {
   patientId: string | null;
@@ -118,6 +119,11 @@ export const ScribeColumn = ({
 
   // Handle deleting an audio recording
   const handleDeleteRecording = async (jobName: string): Promise<void> => {
+    // Log audit event for deleting recording
+    if (patientId) {
+      AuditActions.recordingDelete(medplum, patientId, jobName);
+    }
+
     try {
       const url = `${httpBase}/api/medai/medplum/healthscribe/audio/${encodeURIComponent(jobName)}`;
       const resp = await authenticatedFetch(url, { method: 'DELETE' });
@@ -483,6 +489,11 @@ export const ScribeColumn = ({
   function pauseRecording() {
     if (!isRecording || isPaused) return;
 
+    // Log audit event for pausing recording
+    if (patientId) {
+      AuditActions.recordingPause(medplum, patientId);
+    }
+
     setIsPaused(true);
 
     // Pause the MediaRecorder
@@ -519,6 +530,11 @@ export const ScribeColumn = ({
   function resumeRecording() {
     if (!isRecording || !isPaused) return;
 
+    // Log audit event for resuming recording
+    if (patientId) {
+      AuditActions.recordingResume(medplum, patientId);
+    }
+
     setIsPaused(false);
 
     // Stop keepalive timer
@@ -549,6 +565,11 @@ export const ScribeColumn = ({
   // Cancel recording - discard everything and don't trigger any processing
   function cancelRecording() {
     if (!isRecording) return;
+
+    // Log audit event for cancelling recording
+    if (patientId) {
+      AuditActions.recordingCancel(medplum, patientId);
+    }
 
     isCancelledRef.current = true;
 
@@ -730,6 +751,11 @@ export const ScribeColumn = ({
     setSegments([]);
     isCancelledRef.current = false;
 
+    // Log audit event for starting recording
+    if (patientId) {
+      AuditActions.recordingStart(medplum, patientId);
+    }
+
     try {
       connectWebSocket();
 
@@ -806,6 +832,11 @@ export const ScribeColumn = ({
     // If recording was cancelled, don't process - just exit
     if (isCancelledRef.current) {
       return;
+    }
+
+    // Log audit event for stopping recording
+    if (patientId) {
+      AuditActions.recordingStop(medplum, patientId, duration);
     }
 
     // Stop the duration timer
@@ -1328,6 +1359,10 @@ export const ScribeColumn = ({
                                   text?.length || 0,
                                 );
                                 if (text) {
+                                  // Log audit event for viewing transcript
+                                  if (patientId) {
+                                    AuditActions.transcriptView(medplum, patientId, job);
+                                  }
                                   setModalTranscript(text);
                                   setModalTitle(`Transcript - ${currentSummary.date}`);
                                   setShowTranscriptModal(true);
@@ -1370,6 +1405,10 @@ export const ScribeColumn = ({
                                       'duration:',
                                       preloaded.duration,
                                     );
+                                    // Log audit event for playing audio
+                                    if (patientId) {
+                                      AuditActions.audioPlay(medplum, patientId, job);
+                                    }
                                     setModalAudioUrl(preloaded.url);
                                     setModalAudioDuration(preloaded.duration);
                                     setModalTitle(`Recording - ${currentSummary.date}`);
@@ -1414,6 +1453,11 @@ export const ScribeColumn = ({
                                         ...prev,
                                         [job]: { url: audioUrl, duration },
                                       }));
+                                    }
+
+                                    // Log audit event for playing audio
+                                    if (patientId) {
+                                      AuditActions.audioPlay(medplum, patientId, job);
                                     }
 
                                     // Open modal
@@ -1584,6 +1628,10 @@ export const ScribeColumn = ({
                                       text?.length || 0,
                                     );
                                     if (text) {
+                                      // Log audit event for viewing transcript
+                                      if (patientId) {
+                                        AuditActions.transcriptView(medplum, patientId, job);
+                                      }
                                       setModalTranscript(text);
                                       setModalTitle(`Transcript - ${entry.date}`);
                                       setShowTranscriptModal(true);
@@ -1626,6 +1674,10 @@ export const ScribeColumn = ({
                                           'duration:',
                                           preloaded.duration,
                                         );
+                                        // Log audit event for playing audio
+                                        if (patientId) {
+                                          AuditActions.audioPlay(medplum, patientId, job);
+                                        }
                                         setModalAudioUrl(preloaded.url);
                                         setModalAudioDuration(preloaded.duration);
                                         setModalTitle(`Recording - ${entry.date}`);
@@ -1670,6 +1722,11 @@ export const ScribeColumn = ({
                                             ...prev,
                                             [job]: { url: audioUrl, duration },
                                           }));
+                                        }
+
+                                        // Log audit event for playing audio
+                                        if (patientId) {
+                                          AuditActions.audioPlay(medplum, patientId, job);
                                         }
 
                                         // Open modal
@@ -1760,6 +1817,12 @@ export const ScribeColumn = ({
         onClose={() => setShowTranscriptModal(false)}
         transcript={modalTranscript}
         title={modalTitle}
+        onCopy={() => {
+          // Log audit event for copying transcript
+          if (patientId) {
+            AuditActions.transcriptCopy(medplum, patientId);
+          }
+        }}
       />
 
       <AudioPlayerModal

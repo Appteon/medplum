@@ -10,6 +10,7 @@ import {
   IconUpload,
   IconStethoscope,
 } from '@tabler/icons-react';
+import { AuditActions } from './appteonComponents/helpers/auditLogger';
 
 interface TileProps {
   icon: React.ReactNode;
@@ -21,11 +22,18 @@ interface TileProps {
 
 function Tile({ icon, title, description, href, color }: TileProps): JSX.Element {
   const navigate = useNavigate();
+  const medplum = useMedplum();
+
+  const handleClick = () => {
+    // Log audit event for tile navigation
+    AuditActions.tileNavigation(medplum, title, href);
+    navigate(href)?.catch(console.error);
+  };
 
   return (
     <div
       className="emr-card p-6 cursor-pointer hover:shadow-lg transition-all duration-300 hover:-translate-y-1"
-      onClick={() => navigate(href)?.catch(console.error)}
+      onClick={handleClick}
     >
       <div className={`w-14 h-14 rounded-lg flex items-center justify-center mb-4 ${color}`}>
         {icon}

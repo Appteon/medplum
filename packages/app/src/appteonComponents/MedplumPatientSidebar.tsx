@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight, RefreshCw, Search, X, Users, Menu, Calendar,
 import { useMedplum } from '@medplum/react';
 import type { Patient as FHIRPatient } from '@medplum/fhirtypes';
 import { useRecordingContext } from './contexts/RecordingContext';
+import { AuditActions } from './helpers/auditLogger';
 
 interface MedplumPatientSidebarProps {
   patients: FHIRPatient[];
@@ -79,7 +80,16 @@ export function MedplumPatientSidebar({
   const [activeFilter, setActiveFilter] = useState<'all' | 'today' | 'tomorrow' | 'thisWeek'>('all');
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebouncedValue(search.trim().toLowerCase(), 250);
+  const prevDebouncedSearchRef = useRef<string>('');
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Log audit event when search is performed (debounced)
+  useEffect(() => {
+    if (debouncedSearch && debouncedSearch !== prevDebouncedSearchRef.current && debouncedSearch.length >= 2) {
+      AuditActions.patientSearch(medplum, debouncedSearch);
+    }
+    prevDebouncedSearchRef.current = debouncedSearch;
+  }, [debouncedSearch, medplum]);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
   const [appointmentsMap, setAppointmentsMap] = useState<Record<string, any[]>>({});
   const [appointmentsLoaded, setAppointmentsLoaded] = useState(false);
@@ -382,6 +392,15 @@ export function MedplumPatientSidebar({
     if (isRecording) {
       return;
     }
+    // Find patient name for audit log
+    const patient = effectivePatients.find(p => p.id === patientId);
+    const patientName = patient?.name?.[0]
+      ? `${patient.name[0].given?.join(' ') || ''} ${patient.name[0].family || ''}`.trim()
+      : undefined;
+
+    // Log audit event for patient selection
+    AuditActions.patientSelect(medplum, patientId, patientName);
+
     setSelectedPatientId(patientId);
     onPatientSelect(patientId);
   };

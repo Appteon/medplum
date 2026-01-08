@@ -1,6 +1,8 @@
 "use client";
 import { useState, useEffect } from 'react';
 import { X, FileText, Copy, Check, Sparkles, Pencil, Save, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
+import { useMedplum } from '@medplum/react';
+import { AuditActions } from '../helpers/auditLogger';
 
 interface SmartSynthesisModalProps {
   isOpen: boolean;
@@ -19,16 +21,17 @@ interface ParsedSection {
   color: string;
 }
 
-export function SmartSynthesisModal({ 
-  isOpen, 
-  onClose, 
-  patientId, 
-  note, 
-  loading, 
-  onGenerate, 
-  onSave, 
-  isSaving 
+export function SmartSynthesisModal({
+  isOpen,
+  onClose,
+  patientId,
+  note,
+  loading,
+  onGenerate,
+  onSave,
+  isSaving
 }: SmartSynthesisModalProps) {
+  const medplum = useMedplum();
   const [copiedSection, setCopiedSection] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState('');
@@ -50,6 +53,11 @@ export function SmartSynthesisModal({
       await navigator.clipboard.writeText(text);
       setCopiedSection(section);
       setTimeout(() => setCopiedSection(null), 2000);
+
+      // Log audit event for copying notes
+      if (patientId) {
+        AuditActions.noteCopy(medplum, patientId, section === 'all' ? undefined : section);
+      }
     } catch (e) {
       console.error('Copy failed', e);
     }

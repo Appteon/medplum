@@ -8,9 +8,10 @@ interface TranscriptModalProps {
   onClose: () => void;
   transcript: string;
   title?: string;
+  onCopy?: () => void; // Optional callback for audit logging when copy is clicked
 }
 
-export const TranscriptModal = ({ isOpen, onClose, transcript, title = 'Transcript' }: TranscriptModalProps) => {
+export const TranscriptModal = ({ isOpen, onClose, transcript, title = 'Transcript', onCopy }: TranscriptModalProps) => {
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -60,6 +61,7 @@ export const TranscriptModal = ({ isOpen, onClose, transcript, title = 'Transcri
           <button
             onClick={() => {
               navigator.clipboard.writeText(transcript);
+              onCopy?.(); // Call audit logging callback if provided
             }}
             className="px-4 py-2 text-sm font-medium text-foreground bg-muted hover:bg-muted/80 rounded-md transition-colors"
           >
