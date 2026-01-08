@@ -71,6 +71,7 @@ export const AuditEventSubtypes = {
   RecordingResume: { system: APPTEON_CODE_SYSTEM, code: 'recording-resume', display: 'Recording Resume' } as Coding,
   RecordingCancel: { system: APPTEON_CODE_SYSTEM, code: 'recording-cancel', display: 'Recording Cancel' } as Coding,
   RecordingDelete: { system: APPTEON_CODE_SYSTEM, code: 'recording-delete', display: 'Recording Delete' } as Coding,
+  VisitDelete: { system: APPTEON_CODE_SYSTEM, code: 'visit-delete', display: 'Visit Delete' } as Coding,
 
   // Audio/Transcript events
   AudioPlay: { system: APPTEON_CODE_SYSTEM, code: 'audio-play', display: 'Audio Play' } as Coding,
@@ -163,6 +164,7 @@ const subtypeToAction: Record<string, AuditEventActionType | undefined> = {
   // Delete actions
   'recording-cancel': 'D',
   'recording-delete': 'D',
+  'visit-delete': 'D',
   delete: 'D',
 
   // Execute actions
@@ -416,6 +418,17 @@ export const AuditActions = {
       subtype: AuditEventSubtypes.RecordingDelete,
       patient: patientId,
       description: jobName ? `Deleted recording: ${jobName}` : 'Deleted audio recording',
+    });
+  },
+
+  /** Log visit delete (audio, transcript, scribe notes, synthesis) */
+  visitDelete: (medplum: MedplumClient, patientId: string, jobName: string, visitDate?: string) => {
+    logAuditEvent(medplum, {
+      subtype: AuditEventSubtypes.VisitDelete,
+      patient: patientId,
+      description: visitDate
+        ? `Deleted entire visit from ${visitDate} (${jobName})`
+        : `Deleted entire visit (${jobName})`,
     });
   },
 

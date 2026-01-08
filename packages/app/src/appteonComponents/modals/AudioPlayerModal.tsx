@@ -1,6 +1,6 @@
 'use client';
 
-import { X, Play, Pause, RotateCcw, RotateCw, Volume2, VolumeX, Trash2 } from 'lucide-react';
+import { X, Play, Pause, RotateCcw, RotateCw, Volume2, VolumeX } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 interface AudioPlayerModalProps {
@@ -9,8 +9,6 @@ interface AudioPlayerModalProps {
   audioUrl: string;
   title?: string;
   preloadedDuration?: number; // Duration in seconds, preloaded from parent
-  jobName?: string; // Job name for delete functionality
-  onDelete?: (jobName: string) => Promise<void>; // Callback to delete the recording
 }
 
 export const AudioPlayerModal = ({
@@ -19,8 +17,6 @@ export const AudioPlayerModal = ({
   audioUrl,
   title = 'Audio Player',
   preloadedDuration,
-  jobName,
-  onDelete,
 }: AudioPlayerModalProps) => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -30,8 +26,6 @@ export const AudioPlayerModal = ({
   const [volume, setVolume] = useState(1);
   const [isMuted, setIsMuted] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
 
   const isValidDuration = (value: unknown): value is number =>
     typeof value === 'number' && Number.isFinite(value) && value > 0;
@@ -244,20 +238,6 @@ export const AudioPlayerModal = ({
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const handleDelete = async () => {
-    if (!jobName || !onDelete) return;
-    setIsDeleting(true);
-    try {
-      await onDelete(jobName);
-      setShowDeleteConfirm(false);
-      onClose();
-    } catch (e) {
-      console.error('Failed to delete recording:', e);
-    } finally {
-      setIsDeleting(false);
-    }
-  };
-
   if (!isOpen) return null;
 
   return (
@@ -266,25 +246,13 @@ export const AudioPlayerModal = ({
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-border">
           <h2 className="text-lg font-semibold text-foreground">{title}</h2>
-          <div className="flex items-center gap-2">
-            {jobName && onDelete && (
-              <button
-                onClick={() => setShowDeleteConfirm(true)}
-                className="p-2 rounded-md hover:bg-destructive/10 text-destructive transition-colors"
-                aria-label="Delete recording"
-                title="Delete recording"
-              >
-                <Trash2 className="w-5 h-5" />
-              </button>
-            )}
-            <button
-              onClick={onClose}
-              className="p-2 rounded-md hover:bg-muted transition-colors"
-              aria-label="Close"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
+          <button
+            onClick={onClose}
+            className="p-2 rounded-md hover:bg-muted transition-colors"
+            aria-label="Close"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
 
         {/* Audio Player */}
@@ -401,34 +369,6 @@ export const AudioPlayerModal = ({
           )}
         </div>
       </div>
-
-      {/* Delete Confirmation Dialog */}
-      {showDeleteConfirm && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50">
-          <div className="bg-card border border-border rounded-lg p-6 max-w-sm w-full shadow-xl">
-            <h3 className="text-lg font-semibold text-foreground mb-2">Delete Recording?</h3>
-            <p className="text-sm text-muted-foreground mb-4">
-              This will permanently delete this audio recording. This action is irreversible and cannot be undone.
-            </p>
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => setShowDeleteConfirm(false)}
-                disabled={isDeleting}
-                className="px-4 py-2 text-sm font-medium text-foreground bg-muted hover:bg-muted/80 rounded-md transition-colors disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleDelete}
-                disabled={isDeleting}
-                className="px-4 py-2 text-sm font-medium text-white bg-destructive hover:bg-destructive/90 rounded-md transition-colors disabled:opacity-50"
-              >
-                {isDeleting ? 'Deleting...' : 'Delete Recording'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       <style>{`
         .slider::-webkit-slider-thumb {

@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
-import { ChevronDown, ChevronRight, FileText, AudioLines, Clock, Pause, Play, XCircle } from 'lucide-react';
+import { ChevronDown, ChevronRight, FileText, AudioLines, Clock, Pause, Play, XCircle, Trash2 } from 'lucide-react';
 import { useMedplum } from '@medplum/react';
 import { cn } from '../helpers/utils';
 import { RecordButton } from './RecordButton';
@@ -117,23 +117,23 @@ export const ScribeColumn = ({
     });
   };
 
-  // Handle deleting an audio recording
-  const handleDeleteRecording = async (jobName: string): Promise<void> => {
-    // Log audit event for deleting recording
+  // Handle deleting an entire visit (audio, transcript, scribe notes, synthesis)
+  const handleDeleteVisit = async (jobName: string, visitDate?: string): Promise<void> => {
+    // Log audit event for deleting visit
     if (patientId) {
-      AuditActions.recordingDelete(medplum, patientId, jobName);
+      AuditActions.visitDelete(medplum, patientId, jobName, visitDate);
     }
 
     try {
-      const url = `${httpBase}/api/medai/medplum/healthscribe/audio/${encodeURIComponent(jobName)}`;
+      const url = `${httpBase}/api/medai/medplum/healthscribe/visit/${encodeURIComponent(jobName)}`;
       const resp = await authenticatedFetch(url, { method: 'DELETE' });
 
       if (!resp.ok) {
         const errorText = await resp.text();
-        throw new Error(`Failed to delete recording (${resp.status}): ${errorText}`);
+        throw new Error(`Failed to delete visit (${resp.status}): ${errorText}`);
       }
 
-      // Mark recording as deleted in local state
+      // Mark visit as deleted in local state
       setDeletedRecordings((prev) => new Set(prev).add(jobName));
 
       // Clean up preloaded audio URL if it exists
@@ -148,10 +148,16 @@ export const ScribeColumn = ({
         });
       }
 
-      console.log('Recording deleted successfully:', jobName);
+      // Remove the deleted visit from local state
+      if (currentSummary?.jobName === jobName || currentSummary?.id === jobName) {
+        setCurrentSummary(null);
+      }
+      setScribeHistory((prev) => prev.filter((entry) => entry.jobName !== jobName && entry.id !== jobName));
+
+      console.log('Visit deleted successfully:', jobName);
     } catch (e: any) {
-      console.error('Error deleting recording:', e);
-      setError(e?.message || 'Failed to delete recording');
+      console.error('Error deleting visit:', e);
+      setError(e?.message || 'Failed to delete visit');
       throw e;
     }
   };
@@ -168,6 +174,11 @@ export const ScribeColumn = ({
   const [modalAudioDuration, setModalAudioDuration] = useState<number | undefined>(undefined);
   // NEW: track which job is currently open in the audio modal
   const [modalJobName, setModalJobName] = useState<string | null>(null);
+
+  // Delete confirmation dialog state
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [visitToDelete, setVisitToDelete] = useState<{ jobName: string; date: string } | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Track deleted recordings by job name
   const [deletedRecordings, setDeletedRecordings] = useState<Set<string>>(new Set());
@@ -1478,6 +1489,28 @@ export const ScribeColumn = ({
                               </button>
                             );
                           })()}
+
+                          {(() => {
+                            const job = currentSummary.jobName || currentSummary.id;
+                            const isDeleted = job ? deletedRecordings.has(job) : false;
+                            return (
+                              <button
+                                title={isDeleted ? 'Visit already deleted' : 'Delete visit'}
+                                disabled={isDeleted}
+                                onClick={() => {
+                                  if (!job) {
+                                    setError('Error: No job identifier found');
+                                    return;
+                                  }
+                                  setVisitToDelete({ jobName: job, date: currentSummary.date });
+                                  setShowDeleteConfirm(true);
+                                }}
+                                className={`p-1 rounded ${isDeleted ? 'opacity-40 cursor-not-allowed' : 'hover:bg-destructive/10 text-destructive'}`}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            );
+                          })()}
                         </div>
                       </div>
 
@@ -1747,6 +1780,29 @@ export const ScribeColumn = ({
                                   </button>
                                 );
                               })()}
+
+                              {(() => {
+                                const id = entry.id;
+                                const job = entry.jobName || id;
+                                const isDeleted = job ? deletedRecordings.has(job) : false;
+                                return (
+                                  <button
+                                    title={isDeleted ? 'Visit already deleted' : 'Delete visit'}
+                                    disabled={isDeleted}
+                                    onClick={() => {
+                                      if (!job) {
+                                        setError('Error: No job identifier found');
+                                        return;
+                                      }
+                                      setVisitToDelete({ jobName: job, date: entry.date });
+                                      setShowDeleteConfirm(true);
+                                    }}
+                                    className={`p-1 rounded ${isDeleted ? 'opacity-40 cursor-not-allowed' : 'hover:bg-destructive/10 text-destructive'}`}
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                );
+                              })()}
                             </div>
                           </div>
 
@@ -1837,9 +1893,58 @@ export const ScribeColumn = ({
         preloadedDuration={
           modalAudioDuration ?? (modalJobName ? preloadedAudio[modalJobName]?.duration : undefined)
         }
-        jobName={modalJobName ?? undefined}
-        onDelete={handleDeleteRecording}
       />
+
+      {/* Delete Visit Confirmation Dialog */}
+      {showDeleteConfirm && visitToDelete && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-card border border-border rounded-lg p-6 max-w-md w-full shadow-xl">
+            <h3 className="text-lg font-semibold text-foreground mb-2">Delete Entire Visit?</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              This will permanently delete the entire visit from <strong>{visitToDelete.date}</strong>, including:
+            </p>
+            <ul className="text-sm text-muted-foreground mb-4 list-disc list-inside space-y-1">
+              <li>Audio recording</li>
+              <li>Transcript</li>
+              <li>Scribe notes</li>
+              <li>Synthesis notes (if generated)</li>
+            </ul>
+            <p className="text-sm text-destructive font-semibold mb-4">
+              This action is irreversible and cannot be undone.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setShowDeleteConfirm(false);
+                  setVisitToDelete(null);
+                }}
+                disabled={isDeleting}
+                className="px-4 py-2 text-sm font-medium text-foreground bg-muted hover:bg-muted/80 rounded-md transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  setIsDeleting(true);
+                  try {
+                    await handleDeleteVisit(visitToDelete.jobName, visitToDelete.date);
+                    setShowDeleteConfirm(false);
+                    setVisitToDelete(null);
+                  } catch (e) {
+                    // Error already handled in handleDeleteVisit
+                  } finally {
+                    setIsDeleting(false);
+                  }
+                }}
+                disabled={isDeleting}
+                className="px-4 py-2 text-sm font-medium text-white bg-destructive hover:bg-destructive/90 rounded-md transition-colors disabled:opacity-50"
+              >
+                {isDeleting ? 'Deleting...' : 'Delete Visit'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

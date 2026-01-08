@@ -5,7 +5,7 @@ import { Readable } from 'node:stream';
 import { spawn } from 'node:child_process';
 import { AuthenticatedRequestContext } from '../../../../context.js';
 import { requestContextStore } from '../../../../request-context-store.js';
-import type { DocumentReference, Media } from '@medplum/fhirtypes';
+import type { DiagnosticReport, DocumentReference, Media } from '@medplum/fhirtypes';
 import type { Binary } from '@medplum/fhirtypes';
 import { getSystemRepo } from '../../../../fhir/repo.js';
 import { generateAIScribeNotes } from '../../ai/index.js';
@@ -690,18 +690,18 @@ healthscribeRouter.get('/audio/:jobName', async (req, res): Promise<void> => {
 	}
 });
 
-// Delete audio recording for a specific job
-healthscribeRouter.delete('/audio/:jobName', async (req, res): Promise<void> => {
+// Delete entire visit for a specific job (audio, transcript, scribe notes, synthesis notes)
+healthscribeRouter.delete('/visit/:jobName', async (req, res): Promise<void> => {
 	try {
 		const { jobName } = req.params;
 
-		console.log('Deleting audio for jobName:', jobName);
+		console.log('Deleting entire visit for jobName:', jobName);
 
 		await requestContextStore.run(AuthenticatedRequestContext.system(), async () => {
 			const repo = getSystemRepo();
 
-			// Search for Media resource with the job name identifier
-			const searchResult = await repo.search({
+			// 1. Search for and delete Media resource (audio)
+			const mediaSearch = await repo.search({
 				resourceType: 'Media',
 				filters: [
 					{
@@ -712,40 +712,118 @@ healthscribeRouter.delete('/audio/:jobName', async (req, res): Promise<void> => 
 				],
 			});
 
-			if (!searchResult.entry?.[0]) {
-				console.error('No Media resource found for jobName:', jobName);
-				throw new Error('Audio not found');
+			if (mediaSearch.entry?.[0]) {
+				const media = mediaSearch.entry[0].resource as Media;
+				const binaryUrl = media.content?.url;
+				const binaryId = binaryUrl ? binaryUrl.replace('Binary/', '') : null;
+
+				// Delete the Binary resource if it exists
+				if (binaryId) {
+					try {
+						await repo.deleteResource('Binary', binaryId);
+						console.log('Deleted Binary resource:', binaryId);
+					} catch (err: any) {
+						console.warn('Failed to delete Binary resource:', binaryId, err?.message);
+					}
+				}
+
+				// Delete the Media resource
+				await repo.deleteResource('Media', media.id as string);
+				console.log('Deleted Media resource:', media.id);
 			}
 
-			const media = searchResult.entry[0].resource as Media;
-			console.log('Found Media resource to delete:', {
-				id: media.id,
-				contentUrl: media.content?.url,
+			// 2. Search for and delete transcript DocumentReference
+			const transcriptSearch = await repo.search({
+				resourceType: 'DocumentReference',
+				filters: [
+					{
+						code: 'identifier',
+						operator: 'eq',
+						value: `http://medplum.com/fhir/healthscribe-job|${jobName}`,
+					},
+					{
+						code: 'category',
+						operator: 'eq',
+						value: 'transcript',
+					},
+				],
 			});
 
-			const binaryUrl = media.content?.url;
-			const binaryId = binaryUrl ? binaryUrl.replace('Binary/', '') : null;
+			for (const entry of transcriptSearch.entry || []) {
+				const doc = entry.resource as DocumentReference;
+				await repo.deleteResource('DocumentReference', doc.id as string);
+				console.log('Deleted transcript DocumentReference:', doc.id);
+			}
 
-			// Delete the Binary resource if it exists
-			if (binaryId) {
-				try {
-					await repo.deleteResource('Binary', binaryId);
-					console.log('Deleted Binary resource:', binaryId);
-				} catch (err: any) {
-					console.warn('Failed to delete Binary resource (may already be deleted):', binaryId, err?.message);
+			// 3. Search for and delete scribe notes DocumentReference
+			const scribeSearch = await repo.search({
+				resourceType: 'DocumentReference',
+				filters: [
+					{
+						code: 'identifier',
+						operator: 'eq',
+						value: `http://medplum.com/fhir/healthscribe-job|${jobName}-scribe`,
+					},
+				],
+			});
+
+			for (const entry of scribeSearch.entry || []) {
+				const doc = entry.resource as DocumentReference;
+				await repo.deleteResource('DocumentReference', doc.id as string);
+				console.log('Deleted scribe notes DocumentReference:', doc.id);
+			}
+
+			// 4. Search for and delete SOAP notes DocumentReference
+			const soapSearch = await repo.search({
+				resourceType: 'DocumentReference',
+				filters: [
+					{
+						code: 'identifier',
+						operator: 'eq',
+						value: `http://medplum.com/fhir/healthscribe-job|${jobName}-soap`,
+					},
+				],
+			});
+
+			for (const entry of soapSearch.entry || []) {
+				const doc = entry.resource as DocumentReference;
+				await repo.deleteResource('DocumentReference', doc.id as string);
+				console.log('Deleted SOAP notes DocumentReference:', doc.id);
+			}
+
+			// 5. Search for and delete DiagnosticReport (job record)
+			const diagnosticSearch = await repo.search({
+				resourceType: 'DiagnosticReport',
+				filters: [
+					{
+						code: 'identifier',
+						operator: 'contains',
+						value: jobName,
+					},
+				],
+			});
+
+			for (const entry of diagnosticSearch.entry || []) {
+				const dr = entry.resource as DiagnosticReport | undefined;
+				if (!dr) continue;
+
+				const jobExt = dr.extension?.find(
+					(ext: any) => ext.url === 'http://medplum.com/fhir/StructureDefinition/healthscribe-job-name'
+				);
+				if (jobExt?.valueString === jobName) {
+					await repo.deleteResource('DiagnosticReport', dr.id as string);
+					console.log('Deleted DiagnosticReport:', dr.id);
 				}
 			}
 
-			// Delete the Media resource
-			await repo.deleteResource('Media', media.id as string);
-			console.log('Deleted Media resource:', media.id);
+			console.log('Successfully deleted entire visit for jobName:', jobName);
 		});
 
-		res.status(200).json({ ok: true, message: 'Audio recording deleted successfully' });
+		res.status(200).json({ ok: true, message: 'Visit deleted successfully' });
 		return;
 	} catch (err: any) {
-		const status = err?.message === 'Audio not found' ? 404 : 500;
-		res.status(status).json({ ok: false, error: err?.message ?? 'Server error' });
+		console.error('Error deleting visit:', err);
+		res.status(500).json({ ok: false, error: err?.message ?? 'Server error' });
 		return;
 	}
 });
