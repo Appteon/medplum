@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, ComposedChart, ReferenceArea, Cell } from 'recharts';
+import { Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, ComposedChart, ReferenceArea } from 'recharts';
 import { Maximize2, X } from 'lucide-react';
 
 interface VitalChartData {
@@ -109,6 +109,8 @@ export function VitalSignsChart({
       <ComposedChart
         data={hasData ? chartData : []}
         margin={{ top: 10, right: hasDualData ? 60 : 50, left: 5, bottom: compact ? 10 : 40 }}
+        barGap={chartType === 'groupedBar' ? 2 : 4}
+        barCategoryGap="20%"
       >
         <defs>
           <linearGradient id={`colorNormal-${title}`} x1="0" y1="0" x2="0" y2="1">
@@ -246,21 +248,11 @@ export function VitalSignsChart({
           <Bar
             dataKey="value"
             name={dataLabel || 'Value'}
-            fill="hsl(var(--chart-1))"
+            fill="hsl(210, 70%, 55%)"
             radius={[4, 4, 0, 0]}
             isAnimationActive={false}
-            barSize={chartType === 'groupedBar' ? 16 : 24}
-          >
-            {chartData.map((entry, index) => {
-              const isOutOfRange = entry.value < minRange || entry.value > maxRange;
-              return (
-                <Cell
-                  key={`cell-${index}`}
-                  fill={isOutOfRange ? 'hsl(0, 65%, 55%)' : 'hsl(var(--chart-1))'}
-                />
-              );
-            })}
-          </Bar>
+            barSize={chartType === 'groupedBar' ? 24 : 28}
+          />
         )}
 
         {/* Second data bar for dual data (grouped bar for BP) */}
@@ -268,22 +260,11 @@ export function VitalSignsChart({
           <Bar
             dataKey="value2"
             name={dataLabel2 || 'Value 2'}
-            fill="hsl(var(--chart-2))"
+            fill="hsl(40, 85%, 60%)"
             radius={[4, 4, 0, 0]}
             isAnimationActive={false}
-            barSize={16}
-          >
-            {chartData.map((entry, index) => {
-              const isOutOfRange = entry.value2 !== undefined && minRange2 !== undefined && maxRange2 !== undefined &&
-                (entry.value2 < minRange2 || entry.value2 > maxRange2);
-              return (
-                <Cell
-                  key={`cell2-${index}`}
-                  fill={isOutOfRange ? 'hsl(25, 95%, 55%)' : 'hsl(var(--chart-2))'}
-                />
-              );
-            })}
-          </Bar>
+            barSize={24}
+          />
         )}
 
         {/* No data overlay */}
@@ -365,7 +346,7 @@ export function VitalSignsChart({
           )}
         </div>
 
-        <ChartContent height={compact ? 200 : 300} />
+        <ChartContent height={compact ? 280 : 300} />
       </div>
 
       {/* Fullscreen Modal */}

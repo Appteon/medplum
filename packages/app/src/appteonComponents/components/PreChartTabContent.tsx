@@ -429,9 +429,9 @@ export function PreChartTabContent({
         </div>
 
         {/* 2x2 Grid of Vital Charts */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 -mx-2">
           {/* Blood Pressure Chart - Full Width */}
-          <div className="border border-border rounded-lg p-3 pl-0 pb-1">
+          <div className="border border-border rounded-lg pl-0 pb-0">
             <VitalSignsChart
               title="Blood Pressure"
               data={preChartData.vitalSignsTrends
@@ -458,7 +458,7 @@ export function PreChartTabContent({
           </div>
 
           {/* Heart Rate Chart */}
-          <div className="border border-border rounded-lg p-3 pl-0 pb-1">
+          <div className="border border-border rounded-lg pl-0 pb-0">
             <VitalSignsChart
               title="Heart Rate"
               data={preChartData.vitalSignsTrends
@@ -476,7 +476,7 @@ export function PreChartTabContent({
           </div>
 
           {/* Weight Chart */}
-          <div className="border border-border rounded-lg p-3 pl-0 pb-1">
+          <div className="border border-border rounded-lg pl-0 pb-0">
             <VitalSignsChart
               title="Weight"
               data={preChartData.vitalSignsTrends
@@ -499,7 +499,7 @@ export function PreChartTabContent({
           </div>
 
           {/* SpO2 Chart */}
-          <div className="border border-border rounded-lg p-3 pl-0 pb-1">
+          <div className="border border-border rounded-lg pl-0 pb-0">
             <VitalSignsChart
               title="Oxygen Saturation"
               data={preChartData.vitalSignsTrends

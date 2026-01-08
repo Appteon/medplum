@@ -15,16 +15,16 @@ export const RecordButton = ({ isRecording, onToggle, disabled, isProcessing }: 
       disabled={disabled}
       className={cn(
         "emr-record-btn",
-        isRecording ? "recording" : "",
+        isRecording ? "bg-red-500 hover:bg-red-600" : "",
         disabled && "opacity-50 cursor-not-allowed"
       )}
     >
       {isProcessing ? (
         <Loader2 className="w-8 h-8 text-muted-foreground animate-spin" />
       ) : isRecording ? (
-        <Square className="w-10 h-10 text-success-foreground fill-current" />
+        <Square className="w-10 h-10 text-white fill-current" />
       ) : (
-        <Mic className="w-10 h-10 text-destructive-foreground" />
+        <Mic className="w-10 h-10 text-white" />
       )}
     </button>
   );

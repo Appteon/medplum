@@ -1226,8 +1226,8 @@ export const ScribeColumn = ({
                       className={cn(
                         'w-10 h-10 rounded-full flex items-center justify-center transition-all duration-200',
                         isPaused
-                          ? 'bg-emerald-500 hover:bg-emerald-600 text-white'
-                          : 'bg-amber-500 hover:bg-amber-600 text-white'
+                          ? 'bg-green-500 hover:bg-green-600 text-white'
+                          : 'bg-orange-500 hover:bg-orange-600 text-white'
                       )}
                       title={isPaused ? 'Resume recording' : 'Pause recording'}
                     >
@@ -1246,7 +1246,7 @@ export const ScribeColumn = ({
                   {isRecording && (
                     <button
                       onClick={handleCancelClick}
-                      className="w-10 h-10 rounded-full flex items-center justify-center bg-gray-500 hover:bg-gray-600 text-white transition-all duration-200"
+                      className="w-10 h-10 rounded-full flex items-center justify-center bg-red-700 hover:bg-red-800 text-white transition-all duration-200"
                       title="Cancel recording"
                     >
                       <XCircle className="w-4 h-4" />

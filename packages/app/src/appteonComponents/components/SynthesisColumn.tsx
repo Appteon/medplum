@@ -737,91 +737,107 @@ export const SynthesisColumn = ({
     // Detect patient switch (patient ID changed and it's not just initial mount)
     const patientSwitched = patientId !== prevPatientIdRef.current && prevPatientIdRef.current !== null;
 
-    if (patientSwitched && editingSection) {
-      // Auto-save the current edits before switching patients
-      const autoSave = async () => {
-        try {
-          const originalParsed = parseNoteData(currentNote?.content);
-          if (!originalParsed) return;
+    if (patientSwitched) {
+      if (editingSection) {
+        // Save the current edit state before clearing it
+        const savedEditingSection = editingSection;
+        const savedEditCache = { ...editCache };
+        const savedCurrentNote = currentNote;
 
-          let updated = { ...originalParsed };
+        // Clear edit mode IMMEDIATELY to prevent old content from showing over new patient
+        setEditingSectionRaw(null);
+        setEditCache({});
 
-          // Apply edits based on which section is being edited
-          switch (editingSection) {
-            case 'subjective': {
-              const subj = editCache.subjective || {};
-              updated.subjective = {
-                ...originalParsed.subjective,
-                chiefComplaint: subj.chiefComplaint !== undefined ? subj.chiefComplaint : originalParsed.subjective.chiefComplaint,
-                hpi: subj.hpi !== undefined ? subj.hpi : originalParsed.subjective.hpi,
-                intervalHistory: subj.intervalHistory !== undefined ? subj.intervalHistory : originalParsed.subjective.intervalHistory,
-                reviewOfSystems: subj.reviewOfSystems ?? originalParsed.subjective.reviewOfSystems
-              };
-              break;
+        // Auto-save the edits in the background
+        const autoSave = async () => {
+          try {
+            const originalParsed = parseNoteData(savedCurrentNote?.content);
+            if (!originalParsed) return;
+
+            let updated = { ...originalParsed };
+
+            // Apply edits based on which section was being edited
+            switch (savedEditingSection) {
+              case 'subjective': {
+                const subj = savedEditCache.subjective || {};
+                updated.subjective = {
+                  ...originalParsed.subjective,
+                  chiefComplaint: subj.chiefComplaint !== undefined ? subj.chiefComplaint : originalParsed.subjective.chiefComplaint,
+                  hpi: subj.hpi !== undefined ? subj.hpi : originalParsed.subjective.hpi,
+                  intervalHistory: subj.intervalHistory !== undefined ? subj.intervalHistory : originalParsed.subjective.intervalHistory,
+                  reviewOfSystems: subj.reviewOfSystems ?? originalParsed.subjective.reviewOfSystems
+                };
+                break;
+              }
+              case 'objective': {
+                const obj = savedEditCache.objective || {};
+                updated.objective = {
+                  ...originalParsed.objective,
+                  vitals: obj.vitals ?? originalParsed.objective.vitals,
+                  examFindings: obj.examFindings ?? originalParsed.objective.examFindings,
+                  labsImaging: obj.labsImaging ?? originalParsed.objective.labsImaging
+                };
+                break;
+              }
+              case 'assessmentAndPlan': {
+                const ap = savedEditCache.assessmentAndPlan;
+                if (ap) updated.assessmentAndPlan = ap;
+                break;
+              }
+              case 'pastMedicalHistory': {
+                const pmh = savedEditCache.pastMedicalHistory;
+                if (pmh) updated.pastMedicalHistory = pmh;
+                break;
+              }
+              case 'medications': {
+                const meds = savedEditCache.medications;
+                if (meds) updated.medications = meds;
+                break;
+              }
+              case 'allergies': {
+                const allergies = savedEditCache.allergies;
+                if (allergies) updated.allergies = allergies;
+                break;
+              }
+              case 'socialFamilyHistory': {
+                const sfh = savedEditCache.socialFamilyHistory || {};
+                updated.socialFamilyHistory = {
+                  social: sfh.social ?? originalParsed.socialFamilyHistory.social,
+                  family: sfh.family ?? originalParsed.socialFamilyHistory.family
+                };
+                break;
+              }
+              case 'counseling': {
+                const counseling = savedEditCache.counseling;
+                if (counseling) updated.counseling = counseling;
+                break;
+              }
+              case 'disposition': {
+                const disposition = savedEditCache.disposition;
+                if (disposition !== undefined) updated.disposition = disposition;
+                break;
+              }
             }
-            case 'objective': {
-              const obj = editCache.objective || {};
-              updated.objective = {
-                ...originalParsed.objective,
-                vitals: obj.vitals ?? originalParsed.objective.vitals,
-                examFindings: obj.examFindings ?? originalParsed.objective.examFindings,
-                labsImaging: obj.labsImaging ?? originalParsed.objective.labsImaging
-              };
-              break;
-            }
-            case 'assessmentAndPlan': {
-              const ap = editCache.assessmentAndPlan;
-              if (ap) updated.assessmentAndPlan = ap;
-              break;
-            }
-            case 'pastMedicalHistory': {
-              const pmh = editCache.pastMedicalHistory;
-              if (pmh) updated.pastMedicalHistory = pmh;
-              break;
-            }
-            case 'medications': {
-              const meds = editCache.medications;
-              if (meds) updated.medications = meds;
-              break;
-            }
-            case 'allergies': {
-              const allergies = editCache.allergies;
-              if (allergies) updated.allergies = allergies;
-              break;
-            }
-            case 'socialFamilyHistory': {
-              const sfh = editCache.socialFamilyHistory || {};
-              updated.socialFamilyHistory = {
-                social: sfh.social ?? originalParsed.socialFamilyHistory.social,
-                family: sfh.family ?? originalParsed.socialFamilyHistory.family
-              };
-              break;
-            }
-            case 'counseling': {
-              const counseling = editCache.counseling;
-              if (counseling) updated.counseling = counseling;
-              break;
-            }
-            case 'disposition': {
-              const disposition = editCache.disposition;
-              if (disposition !== undefined) updated.disposition = disposition;
-              break;
-            }
+
+            // Save the updated note
+            await onSave(JSON.stringify(updated));
+            console.log(`Auto-saved ${savedEditingSection} section before patient switch`);
+          } catch (e) {
+            console.error('Auto-save on patient switch failed:', e);
           }
+        };
 
-          // Save the updated note
-          await onSave(JSON.stringify(updated));
-          console.log(`Auto-saved ${editingSection} section before patient switch`);
-        } catch (e) {
-          console.error('Auto-save on patient switch failed:', e);
-        } finally {
-          // Exit edit mode regardless of save success/failure
-          setEditingSectionRaw(null);
-          setEditCache({});
-        }
-      };
+        // Run the save in the background
+        autoSave();
+      } else {
+        // Patient switched but we weren't in edit mode
+        // Still clear the editing state and cache to ensure a clean slate for the new patient
+        setEditingSectionRaw(null);
+        setEditCache({});
+      }
 
-      autoSave();
+      // Reset expanded objective labs on patient switch
+      setExpandedObjectiveLabs(new Set());
     }
 
     // Update ref for next render
