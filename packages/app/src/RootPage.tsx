@@ -9,6 +9,7 @@ import {
   IconCalendar,
   IconUpload,
   IconStethoscope,
+  IconLink,
 } from '@tabler/icons-react';
 import { AuditActions } from './appteonComponents/helpers/auditLogger';
 
@@ -142,8 +143,21 @@ export function RootPage(): JSX.Element {
     },
   ];
 
+  // Super admin tiles
+  const superAdminTiles: TileProps[] = [
+    {
+      icon: <IconLink size={28} className="text-white" />,
+      title: 'Practitioner Linking',
+      description: 'Link EHR practitioners and manage patient assignments',
+      href: '/admin/practitioner-linking',
+      color: 'bg-orange-500',
+    },
+  ];
+
   // Determine which tiles to show
-  const tiles = isUserFrontDesk ? frontDeskTiles : doctorTiles;
+  const baseTiles = isUserFrontDesk ? frontDeskTiles : doctorTiles;
+  const isSuperAdmin = medplum.isSuperAdmin();
+  const tiles = isSuperAdmin ? [...baseTiles, ...superAdminTiles] : baseTiles;
 
   return (
     <div className="min-h-screen bg-background">

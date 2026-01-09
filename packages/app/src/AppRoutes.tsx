@@ -18,6 +18,7 @@ import { SitesPage } from './admin/SitesPage';
 import { SuperAdminAsyncDashboardPage } from './admin/SuperAdminAsyncJobPage';
 import { SuperAdminPage } from './admin/SuperAdminPage';
 import { UsersPage } from './admin/UsersPage';
+import { PractitionerLinkingPage } from './admin/practitioner-linking/PractitionerLinkingPage';
 import { ErrorPage } from './ErrorPage';
 import { RootPage } from './RootPage';
 import { AssaysPage } from './lab/AssaysPage';
@@ -88,6 +89,7 @@ export function AppRoutes(): JSX.Element {
         <Route path="/admin/super/asyncjob" element={<SuperAdminAsyncDashboardPage />} />
         <Route path="/admin/super/db" element={<DatabaseToolsPage />} />
         <Route path="/admin/config" element={<ProjectAdminConfigPage />} />
+        <Route path="/admin/practitioner-linking" element={<PractitionerLinkingPage />} />
         <Route path="/admin" element={<ProjectPage />}>
           <Route path="patients" element={<PatientsPage />} />
           <Route path="bots/new" element={<CreateBotPage />} />
